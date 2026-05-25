@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
@@ -289,62 +289,127 @@ function QuickSearch({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function project(lat: number, lng: number) {
-  const x = ((lng - 68) / (97 - 68)) * 100;
-  const y = ((37 - lat) / (37 - 8)) * 100;
-  return { x: Math.min(96, Math.max(4, x)), y: Math.min(96, Math.max(4, y)) };
-}
-
 function IndiaMapShowcase({ source = "PNBE", destination = "JP", via = ["NDLS"] }: { source?: string; destination?: string; via?: string[] }) {
+  const mapRef = useRef<HTMLDivElement>(null);
   const codes = [source, ...via, destination].filter((code) => STATION_COORDS[code]);
-  const points = codes.map((code) => ({ code, ...project(STATION_COORDS[code].lat, STATION_COORDS[code].lng) }));
-  const path = points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+
+  useEffect(() => {
+    let cleanup = () => undefined;
+
+    async function mountMap() {
+      if (!mapRef.current) return;
+      const L = await import("leaflet");
+      if (!mapRef.current || mapRef.current.dataset.ready === "true") return;
+      mapRef.current.dataset.ready = "true";
+
+      const routeLatLngs = codes.map((code) => [STATION_COORDS[code].lat, STATION_COORDS[code].lng] as [number, number]);
+      const map = L.map(mapRef.current, {
+        center: [23.4, 78.9],
+        zoom: 5,
+        minZoom: 4,
+        maxZoom: 10,
+        zoomControl: true,
+        scrollWheelZoom: true,
+      });
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      }).addTo(map);
+
+      const railLayer = L.tileLayer("https://{s}.tile.openrailwaymap.org/standard/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a>',
+        opacity: 0.62,
+      }).addTo(map);
+
+      const icon = (label: string, color: string) =>
+        L.divIcon({
+          className: "",
+          html: `<div style="display:flex;align-items:center;gap:6px;transform:translate(-6px,-6px);">
+            <span style="width:16px;height:16px;border-radius:999px;background:${color};border:2px solid white;box-shadow:0 10px 28px rgba(15,23,42,.35);display:block"></span>
+            <span style="background:rgba(15,23,42,.88);color:white;border:1px solid rgba(255,255,255,.2);padding:4px 8px;border-radius:999px;font:800 11px Inter,system-ui;white-space:nowrap">${label}</span>
+          </div>`,
+          iconSize: [120, 28],
+          iconAnchor: [8, 8],
+        });
+
+      Object.entries(STATION_COORDS).forEach(([code, coords]) => {
+        const color = code === source ? "#10b981" : code === destination ? "#f43f5e" : via.includes(code) ? "#8b5cf6" : "#64748b";
+        L.marker([coords.lat, coords.lng], { icon: icon(code, color), keyboard: true })
+          .bindTooltip(stationLabelFromCode(code), { direction: "top", offset: [0, -8] })
+          .addTo(map);
+      });
+
+      const route = L.polyline(routeLatLngs, {
+        color: "#06b6d4",
+        weight: 5,
+        opacity: 0.92,
+        lineCap: "round",
+        lineJoin: "round",
+      }).addTo(map);
+
+      L.polyline(routeLatLngs, {
+        color: "#f43f5e",
+        weight: 2,
+        opacity: 0.65,
+        dashArray: "8 12",
+      }).addTo(map);
+
+      const trainMarker = L.marker(routeLatLngs[0], {
+        icon: L.divIcon({
+          className: "",
+          html: `<div style="height:34px;width:34px;border-radius:14px;background:white;color:#020617;display:grid;place-items:center;border:1px solid rgba(15,23,42,.12);box-shadow:0 18px 40px rgba(15,23,42,.35);font:900 17px Inter,system-ui">↗</div>`,
+          iconSize: [34, 34],
+          iconAnchor: [17, 17],
+        }),
+      }).addTo(map);
+
+      let tick = 0;
+      const timer = window.setInterval(() => {
+        if (routeLatLngs.length < 2) return;
+        const segment = Math.floor(tick) % (routeLatLngs.length - 1);
+        const progress = tick - Math.floor(tick);
+        const from = routeLatLngs[segment];
+        const to = routeLatLngs[segment + 1];
+        trainMarker.setLatLng([
+          from[0] + (to[0] - from[0]) * progress,
+          from[1] + (to[1] - from[1]) * progress,
+        ]);
+        tick = (tick + 0.018) % Math.max(1, routeLatLngs.length - 1);
+      }, 60);
+
+      if (routeLatLngs.length > 1) {
+        map.fitBounds(route.getBounds(), { padding: [46, 46], maxZoom: 6 });
+      }
+
+      cleanup = () => {
+        window.clearInterval(timer);
+        map.removeLayer(railLayer);
+        map.remove();
+        if (mapRef.current) delete mapRef.current.dataset.ready;
+      };
+    }
+
+    mountMap();
+    return () => cleanup();
+  }, [codes, destination, source, via]);
 
   return (
-    <div className={softPanel("relative min-h-[420px] overflow-hidden rounded-[34px] p-4")}>
-      <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full" role="img" aria-label="India railway route map">
-        <defs>
-          <filter id="mapGlow"><feGaussianBlur stdDeviation="1.2" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
-          <linearGradient id="routeGradient" x1="0" x2="1"><stop stopColor="#10b981" /><stop offset="0.52" stopColor="#06b6d4" /><stop offset="1" stopColor="#f43f5e" /></linearGradient>
-        </defs>
-        <path
-          d="M27 7 C36 5 52 8 61 18 C72 30 77 43 73 56 C70 69 64 80 55 91 C46 98 34 92 29 82 C25 74 19 66 16 54 C12 38 16 14 27 7Z"
-          fill="currentColor"
-          className="text-slate-200/85 dark:text-white/6"
-          stroke="currentColor"
-          strokeWidth="0.45"
-        />
-        <path d="M26 15 C39 26 52 33 66 51" stroke="currentColor" className="text-slate-300 dark:text-white/12" strokeWidth="0.5" strokeDasharray="1.2 1.4" fill="none" />
-        <path d="M18 52 C34 48 51 60 65 75" stroke="currentColor" className="text-slate-300 dark:text-white/12" strokeWidth="0.5" strokeDasharray="1.2 1.4" fill="none" />
-        <path d={path} fill="none" stroke="url(#routeGradient)" strokeWidth="1.15" strokeLinecap="round" filter="url(#mapGlow)" />
-        {points.length > 1 && (
-          <motion.circle r="1.8" fill="#fff" filter="url(#mapGlow)" animate={{ cx: points.map((p) => p.x), cy: points.map((p) => p.y) }} transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }} />
-        )}
-        {Object.entries(STATION_COORDS).slice(0, 16).map(([code, coords]) => {
-          const point = project(coords.lat, coords.lng);
-          const isSource = code === source;
-          const isDestination = code === destination;
-          const isVia = via.includes(code);
-          return (
-            <g key={code} transform={`translate(${point.x} ${point.y})`}>
-              <circle r={isSource || isDestination ? 2.2 : isVia ? 2 : 1.2} fill={isSource ? "#10b981" : isDestination ? "#f43f5e" : isVia ? "#8b5cf6" : "#94a3b8"} stroke="#fff" strokeWidth="0.45" />
-              {(isSource || isDestination || isVia) && <text x="2.8" y="-1.8" fontSize="3" fontWeight="900" fill="currentColor" className="text-slate-900 dark:text-white">{code}</text>}
-            </g>
-          );
-        })}
-      </svg>
-      <div className="relative z-10 flex h-full min-h-[380px] flex-col justify-between">
-        <div>
-          <span className="inline-flex rounded-full border border-cyan-300/35 bg-cyan-100 px-3 py-1 text-[11px] font-black uppercase text-cyan-800 dark:bg-cyan-300/10 dark:text-cyan-100">Real India route layer</span>
-          <h3 className="mt-4 max-w-md text-3xl font-black tracking-tight">Patna to Jaipur via Delhi, rendered as a split-journey corridor.</h3>
+    <div className={softPanel("relative min-h-[520px] overflow-hidden rounded-[34px] p-3")}>
+      <div ref={mapRef} className="absolute inset-0 z-0 bg-slate-100 dark:bg-slate-950" aria-label="Real OpenStreetMap India railway route map" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-32 bg-gradient-to-b from-white/90 to-transparent dark:from-[#050816]/88" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-40 bg-gradient-to-t from-white/92 to-transparent dark:from-[#050816]/90" />
+      <div className="pointer-events-none relative z-20 flex min-h-[496px] flex-col justify-between p-3 sm:p-5">
+        <div className="max-w-md rounded-3xl border border-slate-200/80 bg-white/88 p-4 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/72">
+          <span className="inline-flex rounded-full border border-cyan-300/35 bg-cyan-100 px-3 py-1 text-[11px] font-black uppercase text-cyan-800 dark:bg-cyan-300/10 dark:text-cyan-100">Real OpenStreetMap + railway layer</span>
+          <h3 className="mt-4 text-2xl font-black tracking-tight">Pan, zoom, and inspect the actual India map with station markers and a live route path.</h3>
         </div>
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="pointer-events-auto grid gap-2 sm:grid-cols-3">
           {[
             ["Source", source, "text-emerald-600"],
             ["Transfer", via[0] || "NDLS", "text-violet-600"],
             ["Destination", destination, "text-rose-600"],
           ].map(([label, code, tone]) => (
-            <div key={label} className="rounded-2xl border border-slate-200 bg-white/80 p-3 text-sm font-bold dark:border-white/10 dark:bg-black/20">
+            <div key={label} className="rounded-2xl border border-slate-200 bg-white/88 p-3 text-sm font-bold shadow-lg backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/72">
               <div className={`text-[11px] uppercase ${tone}`}>{label}</div>
               <div className="mt-1 truncate">{stationLabelFromCode(code, false)}</div>
             </div>
