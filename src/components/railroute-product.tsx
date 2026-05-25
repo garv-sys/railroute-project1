@@ -253,8 +253,13 @@ function StationAutocomplete({
   const [active, setActive] = useState(0);
   const debouncedQuery = useDebouncedValue(query, 500);
   const deferredQuery = useDeferredValue(debouncedQuery);
-  const canSearch = normalizeText(deferredQuery).length >= 3;
-  const matches = useMemo(() => (canSearch ? stationMatches(deferredQuery) : []), [canSearch, deferredQuery]);
+  const canOpenSuggestions = normalizeText(query).length >= 3 || Boolean(stationByCode(query.trim().toUpperCase()));
+  const matches = useMemo(() => {
+    const trimmed = deferredQuery.trim();
+    const exactCode = stationByCode(trimmed.toUpperCase());
+    if (exactCode && normalizeText(trimmed).length < 3) return [exactCode];
+    return normalizeText(trimmed).length >= 3 ? stationMatches(trimmed) : [];
+  }, [deferredQuery]);
 
   useEffect(() => {
     setActive(0);
@@ -304,7 +309,7 @@ function StationAutocomplete({
         />
       </div>
       <AnimatePresence>
-        {open && query.trim().length >= 3 && (
+        {open && canOpenSuggestions && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -370,6 +375,15 @@ function DateQuickField({ date, setDate }: { date: string; setDate: (value: stri
   );
 }
 
+function resolveStationInput(selectedCode: string, query: string) {
+  if (selectedCode) return selectedCode;
+  const trimmed = query.trim();
+  const exactCode = stationByCode(trimmed.toUpperCase());
+  if (exactCode) return exactCode.code;
+  if (normalizeText(trimmed).length < 3) return "";
+  return stationMatches(trimmed, 1)[0]?.code || "";
+}
+
 function QuickSearch({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
   const [source, setSource] = useState("");
@@ -394,15 +408,18 @@ function QuickSearch({ compact = false }: { compact?: boolean }) {
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (!source || !destination) {
+    const resolvedSource = resolveStationInput(source, sourceQuery);
+    const resolvedDestination = resolveStationInput(destination, destinationQuery);
+
+    if (!resolvedSource || !resolvedDestination) {
       setError("Select both Starting Point and End Point from station search.");
       return;
     }
-    if (source === destination) {
+    if (resolvedSource === resolvedDestination) {
       setError("Starting Point and End Point cannot be the same.");
       return;
     }
-    router.push(`/trains?source=${source}&destination=${destination}&date=${date}&classType=${classType}`);
+    router.push(`/trains?source=${resolvedSource}&destination=${resolvedDestination}&date=${date}&classType=${classType}`);
   }
 
   return (
@@ -834,7 +851,12 @@ function TrainResultsWorkspace() {
 
   async function runSearch(event?: FormEvent, override?: { source: string; destination: string; date: string; classType: string }) {
     event?.preventDefault();
-    const payload = override || { source, destination, date, classType };
+    const payload = override || {
+      source: resolveStationInput(source, sourceQuery),
+      destination: resolveStationInput(destination, destinationQuery),
+      date,
+      classType,
+    };
     if (!payload.source || !payload.destination) {
       setState({ loading: false, error: "Choose Starting Point and End Point.", trains: [], splits: [] });
       return;
