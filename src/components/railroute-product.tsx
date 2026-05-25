@@ -869,7 +869,6 @@ function TrainSearchPanel({ compact = false }: { compact?: boolean }) {
 
 function FullTrainDetails({ train }: { train: any }) {
   const route = train.route || [];
-  const [routeOpen, setRouteOpen] = useState(false);
   return (
     <article className="overflow-hidden rounded-[28px] border border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-black/20">
       <div className="grid gap-4 p-5 md:grid-cols-[1fr_auto] md:items-start">
@@ -886,9 +885,9 @@ function FullTrainDetails({ train }: { train: any }) {
           <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold dark:border-white/10 dark:bg-white/8">
             Complete route · {route.length} stops
           </div>
-          <button type="button" onClick={() => setRouteOpen(true)} className="flex items-center justify-center rounded-2xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm font-black text-cyan-800 transition hover:bg-cyan-100 dark:bg-cyan-300/12 dark:text-cyan-100">
-            Check this route
-          </button>
+          <div className="flex items-center justify-center rounded-2xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">
+            Complete timetable below
+          </div>
           <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 transition hover:border-slate-300 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">
             Verify on IRCTC
           </a>
@@ -921,9 +920,6 @@ function FullTrainDetails({ train }: { train: any }) {
           ))}
         </div>
       </div>
-      <AnimatePresence>
-        {routeOpen && <RouteDetailsModal train={train} onClose={() => setRouteOpen(false)} />}
-      </AnimatePresence>
     </article>
   );
 }
@@ -1058,8 +1054,40 @@ function TrainResultsWorkspace() {
       <AnimatePresence>
         {classView && <ClassDetailModal train={classView.train} classCode={classView.classCode} journeyDate={date} onClose={() => setClassView(null)} />}
       </AnimatePresence>
+      <RailRouteCapabilityPanel />
       <StationCodeLookup />
     </section>
+  );
+}
+
+function RailRouteCapabilityPanel() {
+  const items = [
+    ["Search trains", "Find direct trains between selected stations with date and class filters."],
+    ["Check route", "Use the route column on each card when a train number is available."],
+    ["Seat map", "Click any class chip to inspect berth layout, coach options, fare and status."],
+    ["Ticket status", "Read green AVL, yellow RAC and red WL/REGRET signals before booking."],
+    ["Split journeys", "Switch to split results to compare two-leg routes, layover and cost."],
+    ["IRCTC verify", "Use the booking buttons for final live quota and ticket confirmation on IRCTC."],
+  ];
+
+  return (
+    <div className={softPanel("mt-8 rounded-[30px] p-5")}>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-xs font-black uppercase text-cyan-700 dark:text-cyan-200">What you can do here</div>
+          <h3 className="mt-2 text-2xl font-black">RailRoute tools on this page</h3>
+        </div>
+        <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-600 dark:bg-white/10 dark:text-slate-200">Optimized for fewer API calls</span>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        {items.map(([title, body]) => (
+          <div key={title} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-black/20">
+            <div className="font-black">{title}</div>
+            <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 dark:text-slate-400">{body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1194,11 +1222,11 @@ function CoachPositionStrip({ train, activeCoach }: { train: any; activeCoach?: 
 function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode: string) => void }) {
   const classes = train.classes || ["SL", "3A", "2A", "1A"];
   const [routeOpen, setRouteOpen] = useState(false);
-  const [fullRouteOpen, setFullRouteOpen] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
+  const routeAvailable = Boolean(train.trainNo);
   return (
     <article className={softPanel("overflow-hidden rounded-[30px]")}>
-      <div className="grid gap-5 p-5 lg:grid-cols-[1fr_260px]">
+      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_240px_260px]">
         <div>
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">Direct train</span>
@@ -1217,12 +1245,6 @@ function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode:
             <div className="text-right"><div className="text-3xl font-black">{train.arrivalTime || "--:--"}</div><div className="mt-1 text-xs font-black text-rose-600 dark:text-rose-200">{fullStationLabelFromCode(train.destination)}</div></div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" onClick={() => setRouteOpen((value) => !value)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 transition hover:border-cyan-400 hover:text-cyan-700 dark:border-white/10 dark:bg-white/6 dark:text-slate-200">
-              {routeOpen ? "Hide route" : `View route · ${train.departureTime || "--"} to ${train.arrivalTime || "--"}`}
-            </button>
-            <button type="button" onClick={() => setFullRouteOpen(true)} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">
-              Open full route
-            </button>
             <button type="button" onClick={() => setCoachOpen((value) => !value)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 transition hover:border-cyan-400 hover:text-cyan-700 dark:border-white/10 dark:bg-white/6 dark:text-slate-200">
               {coachOpen ? "Hide coach position" : "Coach position"}
             </button>
@@ -1235,7 +1257,21 @@ function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode:
             ))}
           </div>
           {coachOpen && <div className="mt-4"><CoachPositionStrip train={train} /></div>}
-          {routeOpen && <InlineRoutePanel trainNo={train.trainNo} train={train} />}
+        </div>
+        <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/6">
+          <div className="text-[11px] font-black uppercase text-slate-400">Train route</div>
+          <div className={`mt-3 rounded-2xl border p-3 text-sm font-black ${routeAvailable ? "border-cyan-300 bg-cyan-100 text-cyan-800 dark:border-cyan-300/25 dark:bg-cyan-300/12 dark:text-cyan-100" : "border-slate-200 bg-slate-100 text-slate-500 dark:border-white/10 dark:bg-white/8 dark:text-slate-300"}`}>
+            {routeAvailable ? "Route check available" : "Route unavailable"}
+          </div>
+          <div className="mt-3 text-xs font-bold leading-5 text-slate-500 dark:text-slate-400">
+            Expands in this card using the IRCTC-compatible schedule endpoint. No full-screen route view.
+          </div>
+          <button type="button" disabled={!routeAvailable} onClick={() => setRouteOpen((value) => !value)} className="mt-4 flex w-full items-center justify-center rounded-2xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm font-black text-cyan-800 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan-300/12 dark:text-cyan-100">
+            {routeOpen ? "Hide train route" : "Check train route"}
+          </button>
+          <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="mt-3 flex w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 transition hover:border-slate-300 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">
+            Verify on IRCTC
+          </a>
         </div>
         <div className="rounded-3xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/8">
           <div className="text-[11px] font-black uppercase text-slate-400">Ticket status</div>
@@ -1253,15 +1289,10 @@ function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode:
           <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="mt-4 flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
             Book / check ticket on IRCTC
           </a>
-          <button type="button" onClick={() => setFullRouteOpen(true)} className="mt-3 flex w-full items-center justify-center rounded-2xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm font-black text-cyan-800 transition hover:bg-cyan-100 dark:bg-cyan-300/12 dark:text-cyan-100">
-            Check full route
-          </button>
           <div className="mt-4 text-xs font-semibold leading-5 text-slate-500">Click any class chip for class-specific availability, berth layout, coach options and confirmation check.</div>
         </div>
       </div>
-      <AnimatePresence>
-        {fullRouteOpen && <RouteDetailsModal train={train} onClose={() => setFullRouteOpen(false)} />}
-      </AnimatePresence>
+      {routeOpen && <div className="border-t border-slate-200 px-5 pb-5 dark:border-white/10"><InlineRoutePanel trainNo={train.trainNo} train={train} /></div>}
     </article>
   );
 }
@@ -1308,230 +1339,6 @@ function InlineRoutePanel({ trainNo, train }: { trainNo: string; train: any }) {
         ))}
       </div>
     </div>
-  );
-}
-
-function RouteDetailsModal({ train, onClose }: { train: any; onClose: () => void }) {
-  const [state, setState] = useState<{ loading: boolean; route: any[]; train: any | null; error: string }>({
-    loading: true,
-    route: train.route || [],
-    train: null,
-    error: "",
-  });
-
-  useEffect(() => {
-    let mounted = true;
-    const trainNo = String(train.trainNo || "").trim();
-    if (!trainNo) {
-      setState({ loading: false, route: train.route || [], train: null, error: "Train number unavailable for live route lookup." });
-      return;
-    }
-
-    setState((current) => ({ ...current, loading: true, error: "" }));
-    postJson<any>("/api/train-search", { query: trainNo })
-      .then((data) => {
-        if (!mounted) return;
-        const liveTrain = data.trains?.[0] || null;
-        setState({
-          loading: false,
-          route: liveTrain?.route?.length ? liveTrain.route : train.route || [],
-          train: liveTrain,
-          error: "",
-        });
-      })
-      .catch((error) => {
-        if (!mounted) return;
-        setState({
-          loading: false,
-          route: train.route || [],
-          train: null,
-          error: error instanceof Error ? error.message : "Live route lookup failed.",
-        });
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [train]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
-  const route = state.route.length ? state.route : [
-    { code: train.source, departure: train.departureTime || "--:--", arrival: "Start", halt: "-" },
-    { code: train.destination, arrival: train.arrivalTime || "--:--", departure: "End", halt: "-" },
-  ];
-  const resolvedTrain = state.train || train;
-  const firstStop = route[0] || {};
-  const lastStop = route[route.length - 1] || {};
-  const journeySource = String(train.source || resolvedTrain.source || firstStop.code || "").toUpperCase();
-  const journeyDestination = String(train.destination || resolvedTrain.destination || lastStop.code || "").toUpperCase();
-  const sourceIndex = route.findIndex((stop: any) => String(stop.code || "").toUpperCase() === journeySource);
-  const destinationIndex = route.findIndex((stop: any) => String(stop.code || "").toUpperCase() === journeyDestination);
-  const hasJourneySegment = sourceIndex >= 0 && destinationIndex >= 0 && sourceIndex <= destinationIndex;
-  const boardStop = hasJourneySegment ? route[sourceIndex] : { code: journeySource, departure: train.departureTime || "--:--" };
-  const alightStop = hasJourneySegment ? route[destinationIndex] : { code: journeyDestination, arrival: train.arrivalTime || "--:--" };
-  const boardTime = boardStop.departure && boardStop.departure !== "--" ? boardStop.departure : train.departureTime || "--:--";
-  const alightTime = alightStop.arrival && alightStop.arrival !== "--" ? alightStop.arrival : train.arrivalTime || "--:--";
-  const segmentStops = hasJourneySegment ? destinationIndex - sourceIndex + 1 : 2;
-  const segmentDistance = hasJourneySegment ? Math.max(0, Number(alightStop.distance || 0) - Number(boardStop.distance || 0)) : 0;
-  const firstDeparture = firstStop.departure && firstStop.departure !== "--:--" ? firstStop.departure : train.departureTime || "--:--";
-  const lastArrival = lastStop.arrival && lastStop.arrival !== "--:--" ? lastStop.arrival : train.arrivalTime || "--:--";
-  const distance = Number(lastStop.distance || 0);
-  const runningDays = Array.isArray(resolvedTrain.runningDays) ? resolvedTrain.runningDays.join(" · ") : resolvedTrain.runningDays || "Check schedule";
-
-  return (
-    <motion.div
-      className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/70 p-0 backdrop-blur-md sm:items-center sm:p-4"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Full train route"
-      onMouseDown={onClose}
-    >
-      <motion.div
-        className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-t-[30px] border border-white/10 bg-white shadow-2xl dark:bg-[#101725] sm:rounded-[34px]"
-        initial={{ y: 32, scale: 0.98 }}
-        animate={{ y: 0, scale: 1 }}
-        exit={{ y: 24, scale: 0.98 }}
-        transition={{ type: "spring", stiffness: 260, damping: 28 }}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/92 p-4 backdrop-blur-xl dark:border-white/10 dark:bg-[#101725]/92 sm:p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex flex-wrap gap-2">
-                <span className="rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-black uppercase text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">IRCTC-compatible full route</span>
-                <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">{runningDays}</span>
-                {state.loading && <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black text-slate-600 dark:bg-white/10 dark:text-slate-200"><Loader2 className="h-3 w-3 animate-spin" /> Syncing</span>}
-              </div>
-              <h2 className="mt-3 text-2xl font-black tracking-tight sm:text-4xl">{trainNumberName(resolvedTrain, "Indian Railways Train")}</h2>
-              <p className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">
-                {stationLabelFromCode(resolvedTrain.source || firstStop.code)} to {stationLabelFromCode(resolvedTrain.destination || lastStop.code)}
-              </p>
-            </div>
-            <button type="button" onClick={onClose} aria-label="Close route view" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-700 transition hover:border-rose-300 hover:text-rose-600 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-            {[
-              ["Your ride", `${boardTime} → ${alightTime}`],
-              ["Full train", `${firstDeparture} → ${lastArrival}`],
-              ["Your stops", `${segmentStops}`],
-              ["Full distance", distance ? `${distance} km` : "Distance on schedule"],
-              ["Seats", liveSeatText(train)],
-              ["Rate", liveFareText(train)],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/6">
-                <div className="text-[10px] font-black uppercase text-slate-400">{label}</div>
-                <div className="mt-1 text-sm font-black text-slate-900 dark:text-white">{value}</div>
-              </div>
-            ))}
-          </div>
-          {state.error && <div className="mt-3 rounded-2xl border border-amber-300/50 bg-amber-50 p-3 text-xs font-bold text-amber-800 dark:bg-amber-300/10 dark:text-amber-100">{state.error} Showing cached RailRoute route data.</div>}
-        </div>
-
-        <div className="max-h-[62vh] overflow-y-auto p-4 sm:p-5">
-          <div className="mb-4 rounded-[28px] border border-cyan-300/40 bg-cyan-50 p-4 dark:border-cyan-300/20 dark:bg-cyan-300/10">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="text-[11px] font-black uppercase text-cyan-800 dark:text-cyan-100">Your searched journey section</div>
-                <h3 className="mt-2 text-2xl font-black">
-                  {stationLabelFromCode(journeySource)} → {stationLabelFromCode(journeyDestination)}
-                </h3>
-                <p className="mt-1 text-sm font-bold text-slate-600 dark:text-slate-300">
-                  Board at {stationLabelFromCode(journeySource)} around {boardTime}. Alight at {stationLabelFromCode(journeyDestination)} around {alightTime}.
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-                <div className="rounded-2xl bg-white/80 p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Board stop</div><div className="font-black">{sourceIndex >= 0 ? sourceIndex + 1 : "--"}</div></div>
-                <div className="rounded-2xl bg-white/80 p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Alight stop</div><div className="font-black">{destinationIndex >= 0 ? destinationIndex + 1 : "--"}</div></div>
-                <div className="rounded-2xl bg-white/80 p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Your stops</div><div className="font-black">{segmentStops}</div></div>
-                <div className="rounded-2xl bg-white/80 p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Section km</div><div className="font-black">{segmentDistance ? `${segmentDistance} km` : "--"}</div></div>
-              </div>
-            </div>
-            {!hasJourneySegment && (
-              <div className="mt-3 rounded-2xl border border-amber-300/50 bg-amber-50 p-3 text-xs font-bold text-amber-800 dark:bg-amber-300/10 dark:text-amber-100">
-                This train result uses your searched station pair, but the provider route did not expose both station codes in the full timetable. Verify the exact boarding/alighting stop on IRCTC before booking.
-              </div>
-            )}
-          </div>
-          <div className="mb-4 grid gap-3 md:grid-cols-3">
-            <div className="rounded-3xl bg-emerald-50 p-4 dark:bg-emerald-300/10">
-              <div className="text-[11px] font-black uppercase text-emerald-700 dark:text-emerald-100">Starts</div>
-              <div className="mt-1 text-lg font-black">{stationLabelFromCode(firstStop.code || resolvedTrain.source)}</div>
-              <div className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-300">Dep {firstDeparture}</div>
-            </div>
-            <div className="rounded-3xl bg-cyan-50 p-4 dark:bg-cyan-300/10">
-              <div className="text-[11px] font-black uppercase text-cyan-700 dark:text-cyan-100">Train intelligence</div>
-              <div className="mt-1 text-lg font-black">{resolvedTrain.dataSource || "Live schedule lookup"}</div>
-              <div className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-300">Platforms can change; verify before boarding.</div>
-            </div>
-            <div className="rounded-3xl bg-rose-50 p-4 dark:bg-rose-300/10">
-              <div className="text-[11px] font-black uppercase text-rose-700 dark:text-rose-100">Ends</div>
-              <div className="mt-1 text-lg font-black">{stationLabelFromCode(lastStop.code || resolvedTrain.destination)}</div>
-              <div className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-300">Arr {lastArrival}</div>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {route.map((stop: any, index: number) => {
-              const code = String(stop.code || "").toUpperCase();
-              const isBoard = hasJourneySegment && code === journeySource;
-              const isAlight = hasJourneySegment && code === journeyDestination;
-              const isInsideSegment = hasJourneySegment && index >= sourceIndex && index <= destinationIndex;
-              const isOutsideSegment = hasJourneySegment && !isInsideSegment;
-              return (
-                <div key={`${stop.code || "stop"}-${index}`} className={`grid grid-cols-[auto_1fr] gap-3 ${isOutsideSegment ? "opacity-45" : ""}`}>
-                  <div className="flex flex-col items-center">
-                    <span className={`mt-3 flex h-9 w-9 items-center justify-center rounded-full border ${isBoard ? "border-emerald-400 bg-emerald-100 text-emerald-700 ring-4 ring-emerald-300/20 dark:bg-emerald-400/12 dark:text-emerald-100" : isAlight ? "border-rose-400 bg-rose-100 text-rose-700 ring-4 ring-rose-300/20 dark:bg-rose-400/12 dark:text-rose-100" : index === 0 ? "border-slate-300 bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-200" : index === route.length - 1 ? "border-slate-300 bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-200" : isInsideSegment ? "border-cyan-400 bg-cyan-100 text-cyan-700 dark:bg-cyan-400/12 dark:text-cyan-100" : "border-slate-300 bg-slate-100 text-slate-500 dark:bg-white/8 dark:text-slate-300"}`}>
-                      <Circle className="h-2.5 w-2.5 fill-current" />
-                    </span>
-                    {index < route.length - 1 && <span className={`h-full min-h-16 w-px ${isInsideSegment ? "bg-cyan-300 dark:bg-cyan-300/30" : "bg-slate-200 dark:bg-white/12"}`} />}
-                  </div>
-                  <div className={`rounded-3xl border p-4 ${isBoard ? "border-emerald-300 bg-emerald-50 dark:border-emerald-300/25 dark:bg-emerald-300/10" : isAlight ? "border-rose-300 bg-rose-50 dark:border-rose-300/25 dark:bg-rose-300/10" : isInsideSegment ? "border-cyan-200 bg-cyan-50/60 dark:border-cyan-300/20 dark:bg-cyan-300/8" : "border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/6"}`}>
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-lg font-black">{stop.stationName || stationLabelFromCode(stop.code, false)}</span>
-                          <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-black text-slate-700 dark:bg-black/20 dark:text-slate-200">{stop.code || "--"}</span>
-                          {isBoard && <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-black uppercase text-emerald-700 dark:bg-emerald-300/12 dark:text-emerald-100">board here</span>}
-                          {isAlight && <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-black uppercase text-rose-700 dark:bg-rose-300/12 dark:text-rose-100">alight here</span>}
-                          {!isBoard && !isAlight && isInsideSegment && <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-[10px] font-black uppercase text-cyan-700 dark:bg-cyan-300/12 dark:text-cyan-100">your section</span>}
-                          {index === 0 && !isBoard && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600 dark:bg-white/10 dark:text-slate-200">train origin</span>}
-                          {index === route.length - 1 && !isAlight && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600 dark:bg-white/10 dark:text-slate-200">train terminal</span>}
-                        </div>
-                        <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
-                          {stop.state || stationState(stop.code) || "State TBA"} · Platform {stop.platform || "TBA"} · Day {stop.day || 1} · {stop.distance ?? "--"} km
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 text-sm sm:min-w-72">
-                        <div className="rounded-2xl bg-white p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Arr</div><div className="font-black">{stop.arrival || "--"}</div></div>
-                        <div className="rounded-2xl bg-white p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Dep</div><div className="font-black">{stop.departure || "--"}</div></div>
-                        <div className="rounded-2xl bg-white p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Halt</div><div className="font-black">{stop.halt || "--"}</div></div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="sticky bottom-0 flex flex-col gap-2 border-t border-slate-200 bg-white/92 p-4 backdrop-blur-xl dark:border-white/10 dark:bg-[#101725]/92 sm:flex-row sm:items-center sm:justify-end">
-          <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-3 text-sm font-black text-slate-800 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">Close</button>
-          <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="rounded-2xl bg-slate-950 px-5 py-3 text-center text-sm font-black text-white dark:bg-white dark:text-slate-950">Verify / book on IRCTC</a>
-        </div>
-      </motion.div>
-    </motion.div>
   );
 }
 
@@ -1693,9 +1500,15 @@ function SplitJourneyCard({ split }: { split: any }) {
         <CoachPositionStrip train={leg1} />
         <CoachPositionStrip train={leg2} />
       </div>
-      <AnimatePresence>
-        {routeTrain && <RouteDetailsModal train={routeTrain} onClose={() => setRouteTrain(null)} />}
-      </AnimatePresence>
+      {routeTrain && (
+        <div className="mt-4 rounded-[28px] border border-cyan-300/30 bg-cyan-50/70 p-3 dark:border-cyan-300/20 dark:bg-cyan-300/10">
+          <div className="mb-3 flex items-center justify-between gap-3 px-1">
+            <div className="text-xs font-black uppercase text-cyan-800 dark:text-cyan-100">Selected leg route</div>
+            <button type="button" onClick={() => setRouteTrain(null)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-black text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">Hide</button>
+          </div>
+          <InlineRoutePanel trainNo={routeTrain.trainNo} train={routeTrain} />
+        </div>
+      )}
     </article>
   );
 }
@@ -1707,6 +1520,21 @@ function CoachExplorer({ initialClass = "3A", embedded = false, train }: { initi
   const seats = useMemo(() => buildCoachSeats(classType, coach), [classType, coach]);
   const coachOptions = compatibleCoaches(classType);
   const seatGroups = useMemo(() => groupSeatsForClass(classType, seats), [classType, seats]);
+  const seatTile = (seat: ReturnType<typeof buildCoachSeats>[number], compact = false) => {
+    const isSelected = selected.includes(seat.id);
+    return (
+      <button key={seat.id} type="button" disabled={seat.state === "booked"} onClick={() => setSelected((items) => items.includes(seat.id) ? items.filter((id) => id !== seat.id) : [...items, seat.id])} className={`${compact ? "h-12" : "h-14"} rounded-xl border text-xs font-black transition ${
+        isSelected ? "border-cyan-500 bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-400/20" :
+        seat.state === "available" ? "border-emerald-300 bg-emerald-100 text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100" :
+        seat.state === "RAC" ? "border-amber-300 bg-amber-100 text-amber-800 dark:bg-amber-300/12 dark:text-amber-100" :
+        seat.state === "WL" ? "border-rose-300 bg-rose-100 text-rose-800 dark:bg-rose-300/12 dark:text-rose-100" :
+        "border-slate-200 bg-slate-200 text-slate-400 dark:border-white/10 dark:bg-white/8"
+      }`}>
+        <span className="block leading-none">{seat.number}</span>
+        <span className="mt-1 block text-[10px] leading-none">{seat.berth}</span>
+      </button>
+    );
+  };
 
   return (
     <div className={embedded ? "" : softPanel("rounded-[32px] p-5")}>
@@ -1737,27 +1565,42 @@ function CoachExplorer({ initialClass = "3A", embedded = false, train }: { initi
           </div>
           <Train className="h-5 w-5 text-cyan-600 dark:text-cyan-200" />
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 xl:grid-cols-2">
           {seatGroups.map((group) => (
-            <div key={group.label} className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-white/6">
-              <div className="mb-2 text-[11px] font-black uppercase text-slate-400">{group.label}</div>
-              <div className={`grid gap-2 ${classType === "1A" ? "grid-cols-2" : classType === "2A" ? "grid-cols-3" : ["CC", "EC"].includes(classType) ? "grid-cols-4" : "grid-cols-4"}`}>
-                {group.seats.map((seat) => {
-                  const isSelected = selected.includes(seat.id);
-                  return (
-                    <button key={seat.id} type="button" disabled={seat.state === "booked"} onClick={() => setSelected((items) => items.includes(seat.id) ? items.filter((id) => id !== seat.id) : [...items, seat.id])} className={`h-14 rounded-xl border text-xs font-black transition ${
-                      isSelected ? "border-cyan-500 bg-cyan-400 text-slate-950" :
-                      seat.state === "available" ? "border-emerald-300 bg-emerald-100 text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100" :
-                      seat.state === "RAC" ? "border-amber-300 bg-amber-100 text-amber-800 dark:bg-amber-300/12 dark:text-amber-100" :
-                      seat.state === "WL" ? "border-violet-300 bg-violet-100 text-violet-800 dark:bg-violet-300/12 dark:text-violet-100" :
-                      "border-slate-200 bg-slate-200 text-slate-400 dark:border-white/10 dark:bg-white/8"
-                    }`}>
-                      <span className="block">{seat.number}</span>
-                      <span>{seat.berth}</span>
-                    </button>
-                  );
-                })}
+            <div key={group.label} className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-white/6">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="text-[11px] font-black uppercase text-slate-400">{group.label}</div>
+                <div className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-500 dark:bg-black/20 dark:text-slate-300">
+                  {classType === "1A" ? "Cabin/Coupe" : ["CC", "EC"].includes(classType) ? "Chair row" : "Bay + side"}
+                </div>
               </div>
+              {classType === "1A" ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-black/20">
+                  <div className="mb-2 text-center text-[10px] font-black uppercase text-slate-400">Private cabin area</div>
+                  <div className="grid grid-cols-2 gap-2">{group.seats.map((seat) => seatTile(seat))}</div>
+                </div>
+              ) : ["CC", "EC"].includes(classType) ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-black/20">
+                  <div className="mb-2 text-center text-[10px] font-black uppercase text-slate-400">Window · Aisle · Aisle · Window</div>
+                  <div className="grid grid-cols-4 gap-2">{group.seats.map((seat) => seatTile(seat, true))}</div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-[1fr_42px_84px] gap-2">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-2 dark:border-white/10 dark:bg-black/20">
+                    <div className={`grid gap-2 ${classType === "2A" ? "grid-cols-2" : "grid-cols-3"}`}>
+                      {group.seats.slice(0, classType === "2A" ? 4 : 6).map((seat) => seatTile(seat, true))}
+                    </div>
+                    <div className="mt-2 text-center text-[10px] font-black uppercase text-slate-400">Main bay</div>
+                  </div>
+                  <div className="flex items-center justify-center rounded-2xl bg-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-400 [writing-mode:vertical-rl] dark:bg-black/20">
+                    aisle
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-2 dark:border-white/10 dark:bg-black/20">
+                    <div className="grid gap-2">{group.seats.slice(classType === "2A" ? 4 : 6).map((seat) => seatTile(seat, true))}</div>
+                    <div className="mt-2 text-center text-[10px] font-black uppercase text-slate-400">Side</div>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
