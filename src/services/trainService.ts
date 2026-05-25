@@ -278,14 +278,14 @@ async function generate6DayAvailability(
     list.push({
       dateStr: 'Error',
       rawDate: startDateStr,
-      status: 'NOT_RUNNING',
-      text: 'Live Fetch Failed',
+      status: 'REGRET',
+      text: 'Check seats on IRCTC',
       seats: 0,
       fare: estimatedFare,
-      notRunning: true,
+      notRunning: false,
       confirmationChance: 0,
       fareBreakdown: { baseFare, reservationCharge, superfastCharge, gst: 0, total: estimatedFare },
-      updatedTime: 'Proxy Failed'
+      updatedTime: 'IRCTC verification required'
     });
     return list;
   }
@@ -928,8 +928,8 @@ export async function findSmartRoutes(source: string, dest: string, date: string
       'DJJ':  ['NJP', 'MLDT', 'SDAH'],         // Darjeeling → via New Jalpaiguri, Maldah, Sealdah
       'SVDK': ['JAT', 'LDH', 'UMB'],           // Katra (Vaishno Devi) → via Jammu Tawi, Ludhiana
       'UAM':  ['MTP', 'CBE', 'SA'],             // Ooty (Nilgiri) → via Mettupalayam, Coimbatore
-      'MAO':  ['LD', 'VSG', 'HWH'],            // Goa Madgaon → via Londa, Vasco
-      'VSG':  ['LD', 'MAO', 'HWH'],            // Goa Vasco → via Londa, Madgaon
+      'MAO':  ['NGP', 'BPL', 'KYN', 'LD', 'VSG'], // Goa Madgaon → strong central/western split hubs
+      'VSG':  ['NGP', 'BPL', 'KYN', 'LD', 'MAO'], // Goa Vasco → via central/western split hubs
       'MYS':  ['SBC', 'SSPN', 'CBE'],          // Mysuru → via Bengaluru, Hassan
       'GHY':  ['NJP', 'HWH', 'MLDT'],         // Guwahati → via NJP, Howrah
       'AGTL': ['GHY', 'HWH', 'KYQ'],          // Agartala → via Guwahati
@@ -1105,8 +1105,8 @@ export async function findSmartRoutes(source: string, dest: string, date: string
         const a2 = leg2Enriched.availability.toLowerCase();
         
         if (
-          a1.includes('not available for booking') || a1.includes('cancel') || a1.includes('not running') || a1.includes('no service') || a1.includes('failed') ||
-          a2.includes('not available for booking') || a2.includes('cancel') || a2.includes('not running') || a2.includes('no service') || a2.includes('failed')
+          a1.includes('not available for booking') || a1.includes('cancel') || a1.includes('not running') || a1.includes('no service') ||
+          a2.includes('not available for booking') || a2.includes('cancel') || a2.includes('not running') || a2.includes('no service')
         ) {
           continue;
         }

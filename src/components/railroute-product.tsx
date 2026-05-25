@@ -927,7 +927,7 @@ function TrainResultsWorkspace() {
   const [classType, setClassType] = useState("3A");
   const [allowSplit, setAllowSplit] = useState(true);
   const [resultMode, setResultMode] = useState<"all" | "direct" | "split">("all");
-  const [state, setState] = useState<{ loading: boolean; error: string; trains: any[]; splits: any[] }>({ loading: false, error: "", trains: [], splits: [] });
+  const [state, setState] = useState<{ loading: boolean; splitLoading: boolean; error: string; trains: any[]; splits: any[] }>({ loading: false, splitLoading: false, error: "", trains: [], splits: [] });
   const [classView, setClassView] = useState<{ train: any; classCode: string } | null>(null);
 
   useEffect(() => {
@@ -963,26 +963,25 @@ function TrainResultsWorkspace() {
       classType,
     };
     if (!payload.source || !payload.destination) {
-      setState({ loading: false, error: "Choose Starting Point and End Point.", trains: [], splits: [] });
+      setState({ loading: false, splitLoading: false, error: "Choose Starting Point and End Point.", trains: [], splits: [] });
       return;
     }
-    setState({ loading: true, error: "", trains: [], splits: [] });
+    setState({ loading: true, splitLoading: allowSplit, error: "", trains: [], splits: [] });
     try {
       const direct = await postJson<any>("/api/train-between", payload);
       const trains = direct.trains || [];
-      const quickSplits = allowSplit ? buildFallbackSplits(payload.source, payload.destination, trains).slice(0, 2) : [];
-      setState({ loading: false, error: "", trains, splits: quickSplits });
+      setState({ loading: false, splitLoading: allowSplit, error: "", trains, splits: [] });
 
       if (allowSplit) {
         postJson<any>("/api/search-split", { ...payload, directTrains: trains })
           .then((splitData) => {
             const liveSplits = splitData.splitRoutes || [];
-            if (liveSplits.length) setState((current) => ({ ...current, splits: liveSplits }));
+            setState((current) => ({ ...current, splitLoading: false, splits: liveSplits }));
           })
-          .catch(() => undefined);
+          .catch(() => setState((current) => ({ ...current, splitLoading: false })));
       }
     } catch (error) {
-      setState({ loading: false, error: error instanceof Error ? error.message : "Train search failed.", trains: [], splits: [] });
+      setState({ loading: false, splitLoading: false, error: error instanceof Error ? error.message : "Train search failed.", trains: [], splits: [] });
     }
   }
 
@@ -1011,7 +1010,7 @@ function TrainResultsWorkspace() {
         </form>
       </div>
       {state.error && <div className="mt-5 rounded-3xl border border-rose-300/40 bg-rose-50 p-5 font-bold text-rose-700 dark:bg-rose-400/10 dark:text-rose-100">{state.error}</div>}
-      {state.loading && <LoadingBlock label="Scanning trains, seats and split options..." />}
+      {state.loading && <LoadingBlock label="Scanning live train inventory..." />}
       {(state.trains.length > 0 || state.splits.length > 0) && (
         <div className="mt-6 flex flex-wrap gap-2">
           {[
@@ -1027,7 +1026,17 @@ function TrainResultsWorkspace() {
       )}
       <div className="mt-6 space-y-4">
         {(resultMode === "all" || resultMode === "direct") && state.trains.map((train) => <PremiumTrainCard key={`${train.trainNo}-${train.source}-${train.destination}`} train={train} onClass={(classCode) => setClassView({ train, classCode })} />)}
+        {allowSplit && state.splitLoading && (resultMode === "all" || resultMode === "split") && <LoadingBlock label="Finding real split journeys from live train data..." />}
         {allowSplit && (resultMode === "all" || resultMode === "split") && state.splits.map((split, index) => <SplitJourneyCard key={`${split.hubStation}-${index}`} split={split} />)}
+        {!state.loading && !state.splitLoading && !state.trains.length && !state.splits.length && (
+          <div className={softPanel("rounded-[30px] p-6")}>
+            <h3 className="text-2xl font-black">No live train options found for this exact search.</h3>
+            <p className="mt-2 text-sm font-semibold leading-6 text-slate-500 dark:text-slate-400">
+              RailRoute checked the IRCTC-compatible train inventory and did not find a direct or valid split route for this date. Try nearby stations, a different date, or verify manually on IRCTC.
+            </p>
+            <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="mt-4 inline-flex rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white dark:bg-white dark:text-slate-950">Open IRCTC train search</a>
+          </div>
+        )}
       </div>
       <AnimatePresence>
         {classView && <ClassDetailModal train={classView.train} classCode={classView.classCode} journeyDate={date} onClose={() => setClassView(null)} />}
@@ -1074,62 +1083,6 @@ function StationCodeLookup() {
       </div>
     </div>
   );
-}
-
-function buildFallbackSplits(source: string, destination: string, directTrains: any[]) {
-  const destinationHubs: Record<string, string[]> = {
-    MAO: ["DDU", "NGP", "BPL", "KYN"],
-    VSG: ["DDU", "NGP", "BPL", "KYN"],
-    SBC: ["DDU", "CNB", "NGP", "SC"],
-    BNC: ["DDU", "CNB", "NGP", "SC"],
-    SMVB: ["DDU", "CNB", "NGP", "SC"],
-    JP: ["DDU", "CNB", "NDLS", "AII"],
-  };
-  const hubs = destinationHubs[destination] || (source === "PNBE" || source === "DNR" ? ["DDU", "CNB", "NDLS", "NGP"] : ["NDLS", "CNB", "DDU", "NGP"]);
-  return hubs
-    .filter((hub) => hub !== source && hub !== destination)
-    .slice(0, 3)
-    .map((hub, index) => {
-      const first = directTrains[index % Math.max(1, directTrains.length)] || {};
-      const sourceName = fullStationLabelFromCode(source, false).replace(/\s*\(.+?\)/, "");
-      const hubName = fullStationLabelFromCode(hub, false).replace(/\s*\(.+?\)/, "");
-      const destinationName = fullStationLabelFromCode(destination, false).replace(/\s*\(.+?\)/, "");
-      const leg1Number = first.trainNo || `SP${index + 1}01`;
-      const leg2Number = `SP${index + 1}02`;
-      const leg1 = {
-        trainName: first.trainName ? `${first.trainName} · split leg to ${hubName}` : `${sourceName} - ${hubName} optimal connector`,
-        trainNo: leg1Number,
-        source,
-        destination: hub,
-        departureTime: first.departureTime || "08:10",
-        arrivalTime: index === 0 ? "16:45" : "18:20",
-        duration: index === 0 ? "08:35 hrs" : "10:10 hrs",
-        fare: "₹720",
-        availability: "AVL 24",
-      };
-      const leg2 = {
-        trainName: `${hubName} - ${destinationName} onward connector`,
-        trainNo: leg2Number,
-        source: hub,
-        destination,
-        departureTime: index === 0 ? "18:05" : "20:15",
-        arrivalTime: "09:40",
-        duration: "13:25 hrs",
-        fare: "₹1180",
-        availability: index === 1 ? "RAC 8" : "AVL 11",
-      };
-      return {
-        leg1,
-        leg2,
-        hubStation: hub,
-        hubStationName: fullStationLabelFromCode(hub),
-        layoverDuration: index === 0 ? "1h 20m" : "1h 55m",
-        layoverHours: index === 0 ? 1.33 : 1.92,
-        totalFare: 1900 + index * 140,
-        combinedConfirmationChance: 76 - index * 6,
-        score: 82 - index * 4,
-      };
-    });
 }
 
 function LoadingBlock({ label }: { label: string }) {
