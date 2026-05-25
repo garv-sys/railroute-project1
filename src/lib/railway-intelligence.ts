@@ -53,6 +53,8 @@ export const STATE_BY_CODE: Record<string, string> = {
   MAS: "Tamil Nadu",
   MS: "Tamil Nadu",
   SBC: "Karnataka",
+  BNC: "Karnataka",
+  BNCE: "Karnataka",
   YPR: "Karnataka",
   SC: "Telangana",
   HYB: "Telangana",
@@ -85,6 +87,8 @@ export const STATION_COORDS: Record<string, { lat: number; lng: number }> = {
   BCT: { lat: 18.969, lng: 72.8194 },
   MAS: { lat: 13.0827, lng: 80.2756 },
   SBC: { lat: 12.9774, lng: 77.5708 },
+  BNC: { lat: 12.9922, lng: 77.598 },
+  YPR: { lat: 13.0238, lng: 77.5507 },
   SC: { lat: 17.4344, lng: 78.5013 },
   ADI: { lat: 23.0225, lng: 72.5714 },
   LKO: { lat: 26.8333, lng: 80.915 },
@@ -93,6 +97,20 @@ export const STATION_COORDS: Record<string, { lat: number; lng: number }> = {
   GHY: { lat: 26.185, lng: 91.75 },
   KLK: { lat: 30.8398, lng: 76.9406 },
   SML: { lat: 31.1048, lng: 77.1734 },
+};
+
+const STATION_ALIASES: Record<string, string[]> = {
+  bangalore: ["SBC", "BNC", "YPR"],
+  banglore: ["SBC", "BNC", "YPR"],
+  bengaluru: ["SBC", "BNC", "YPR"],
+  blr: ["SBC", "BNC", "YPR"],
+  ksr: ["SBC"],
+  majestic: ["SBC"],
+  patna: ["PNBE", "RJPB", "DNR", "PPTA"],
+  delhi: ["NDLS", "DLI", "NZM", "ANVT"],
+  mumbai: ["CSMT", "BCT", "LTT", "BDTS"],
+  kolkata: ["HWH", "SDAH", "KOAA"],
+  chennai: ["MAS", "MS"],
 };
 
 export const TRAIN_DIRECTORY: TrainDetails[] = [
@@ -182,12 +200,18 @@ export function normalizeText(value: string) {
 export function stationMatches(query: string, limit = 40) {
   const normalized = normalizeText(query);
   if (!normalized) return [];
+  const aliasCodes = Object.entries(STATION_ALIASES)
+    .filter(([alias]) => alias.includes(normalized) || normalized.includes(alias))
+    .flatMap(([, codes]) => codes);
+
   return stations
     .map((station) => {
       const name = normalizeText(station.name);
       const city = normalizeText(stationCityName(station));
       const code = normalizeText(station.code);
+      const aliasBoost = aliasCodes.includes(station.code) ? 120 : 0;
       let score = 0;
+      score += aliasBoost;
       if (code === normalized) score += 100;
       if (code.startsWith(normalized)) score += 80;
       if (city.startsWith(normalized)) score += 70;
@@ -210,17 +234,29 @@ export function searchTrainDirectory(query: string) {
 
 export function buildCoachSeats(classType: string, coach = "B1") {
   const isChair = ["CC", "EC"].includes(classType);
-  const count = isChair ? 56 : classType === "1A" ? 18 : 72;
-  const berthCycle = classType === "2A" ? ["LB", "UB", "SL", "SU"] : ["LB", "MB", "UB", "SL", "SU"];
-  return Array.from({ length: Math.min(count, 40) }, (_, index) => {
+  const normalizedClass = classType === "3E" ? "3A" : classType;
+  const count = isChair ? 56 : normalizedClass === "1A" ? 18 : normalizedClass === "2A" ? 46 : 72;
+
+  return Array.from({ length: Math.min(count, normalizedClass === "1A" ? 18 : 40) }, (_, index) => {
     const number = index + 1;
     const state = number % 11 === 0 ? "WL" : number % 7 === 0 ? "RAC" : number % 5 === 0 ? "booked" : "available";
+    let berth = `${number}${number % 2 ? "W" : "A"}`;
+    let cabin = "";
+    if (!isChair && normalizedClass === "1A") {
+      const cabinIndex = Math.floor(index / 4);
+      cabin = cabinIndex % 3 === 1 ? `Coupe ${String.fromCharCode(65 + cabinIndex)}` : `Cabin ${String.fromCharCode(65 + cabinIndex)}`;
+      berth = index % 2 === 0 ? "LB" : "UB";
+    } else if (!isChair && normalizedClass === "2A") {
+      berth = ["LB", "UB", "SL", "SU"][index % 4];
+    } else if (!isChair) {
+      berth = ["LB", "MB", "UB", "SL", "SU"][index % 5];
+    }
     return {
       id: `${coach}-${number}`,
       number,
-      berth: isChair ? `${number}${number % 2 ? "W" : "A"}` : berthCycle[index % berthCycle.length],
+      berth,
+      cabin,
       state,
     };
   });
 }
-
