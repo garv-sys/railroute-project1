@@ -110,6 +110,10 @@ function ticketDecision(value: unknown) {
   return { label: "Check on IRCTC", tone: "bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200" };
 }
 
+function trainRouteHref(trainNo: unknown) {
+  return `/route?query=${encodeURIComponent(String(trainNo || ""))}`;
+}
+
 function compatibleCoaches(classType: string) {
   if (classType === "1A") return ["H1", "H2", "HA1"];
   if (classType === "2A") return ["A1", "A2", "HA1"];
@@ -696,12 +700,21 @@ function FullTrainDetails({ train }: { train: any }) {
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">{train.type || "Express"}</span>
             <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">{(train.runningDays || ["Daily"]).join(" · ")}</span>
+            <span className="rounded-full bg-slate-200 px-3 py-1 text-[11px] font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">{train.dataSource || "IRCTC-compatible schedule"}</span>
           </div>
           <h2 className="mt-4 text-2xl font-black">{train.trainName}</h2>
           <p className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">#{train.trainNo} · {stationLabelFromCode(train.source)} to {stationLabelFromCode(train.destination)}</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold dark:border-white/10 dark:bg-white/8">
-          Complete route · {route.length} stops
+        <div className="space-y-2">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold dark:border-white/10 dark:bg-white/8">
+            Complete route · {route.length} stops
+          </div>
+          <Link href={trainRouteHref(train.trainNo)} className="flex items-center justify-center rounded-2xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm font-black text-cyan-800 transition hover:bg-cyan-100 dark:bg-cyan-300/12 dark:text-cyan-100">
+            Check this route
+          </Link>
+          <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 transition hover:border-slate-300 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">
+            Verify on IRCTC
+          </a>
         </div>
       </div>
       <div className="border-t border-slate-200 p-5 dark:border-white/10">
@@ -961,7 +974,7 @@ function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode:
             <button type="button" onClick={() => setRouteOpen((value) => !value)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 transition hover:border-cyan-400 hover:text-cyan-700 dark:border-white/10 dark:bg-white/6 dark:text-slate-200">
               {routeOpen ? "Hide route" : `View route · ${train.departureTime || "--"} to ${train.arrivalTime || "--"}`}
             </button>
-            <Link href={`/route?query=${encodeURIComponent(train.trainNo || "")}`} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">
+            <Link href={trainRouteHref(train.trainNo)} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">
               Open full route
             </Link>
           </div>
@@ -981,6 +994,9 @@ function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode:
           <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="mt-4 flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
             Book / check ticket on IRCTC
           </a>
+          <Link href={trainRouteHref(train.trainNo)} className="mt-3 flex items-center justify-center rounded-2xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm font-black text-cyan-800 transition hover:bg-cyan-100 dark:bg-cyan-300/12 dark:text-cyan-100">
+            Check full route
+          </Link>
           <div className="mt-4 text-xs font-semibold leading-5 text-slate-500">Click any class chip for class-specific availability, berth layout, coach options and confirmation check.</div>
         </div>
       </div>

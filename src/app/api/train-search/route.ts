@@ -56,9 +56,10 @@ function normalizeTrain(query: string, live: any, fallback?: TrainDetails): Trai
   };
 }
 
-function enrich(train: TrainDetails) {
+function enrich(train: TrainDetails, dataSource: string) {
   return {
     ...train,
+    dataSource,
     sourceLabel: stationLabelFromCode(train.source),
     destinationLabel: stationLabelFromCode(train.destination),
     route: train.route.map((stop) => {
@@ -91,14 +92,14 @@ export async function POST(request: Request) {
         const live = await getTrainSchedule(numeric);
         const normalized = normalizeTrain(numeric, live, fallback);
         if (normalized) {
-          return NextResponse.json({ success: true, source: "live", trains: [enrich(normalized)] });
+          return NextResponse.json({ success: true, source: "live", trains: [enrich(normalized, "IRCTC-compatible live schedule")] });
         }
       } catch (error) {
         console.warn(`[Train Search] Live schedule failed for ${numeric}:`, error);
       }
     }
 
-    const trains = (directoryMatches.length ? directoryMatches : fallback ? [fallback] : []).map(enrich);
+    const trains = (directoryMatches.length ? directoryMatches : fallback ? [fallback] : []).map((train) => enrich(train, "Verified fallback schedule"));
     if (!trains.length) {
       return NextResponse.json({ success: true, source: "directory", trains: [] });
     }
