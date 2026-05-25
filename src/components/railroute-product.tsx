@@ -27,6 +27,7 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   buildCoachSeats,
+  normalizeText,
   searchTrainDirectory,
   stationByCode,
   stationLabel,
@@ -49,18 +50,46 @@ const toolNav: { href: string; label: string; tool: ToolKind }[] = [
 
 const classOptions = ["SL", "3E", "3A", "2A", "1A", "CC", "EC"];
 const IRCTC_TRAIN_SEARCH_URL = "https://www.irctc.co.in/nget/train-search";
+const CLIENT_CACHE_TTL_MS = 60_000;
+const clientResponseCache = new Map<string, { timestamp: number; data: unknown }>();
+const clientInFlightRequests = new Map<string, Promise<unknown>>();
+
+function stableStringify(value: unknown): string {
+  if (!value || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
+    .join(",")}}`;
+}
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const response = await fetch(url, {
+  const key = `${url}:${stableStringify(body)}`;
+  const cached = clientResponseCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CLIENT_CACHE_TTL_MS) return cached.data as T;
+
+  const inFlight = clientInFlightRequests.get(key);
+  if (inFlight) return inFlight as Promise<T>;
+
+  const request = fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-  });
-  const data = await response.json();
-  if (!response.ok || data?.error) {
-    throw new Error(data?.error || "RailRoute request failed");
-  }
-  return data;
+  })
+    .then(async (response) => {
+      const data = await response.json();
+      if (!response.ok || data?.error) {
+        throw new Error(data?.error || "RailRoute request failed");
+      }
+      clientResponseCache.set(key, { timestamp: Date.now(), data });
+      return data as T;
+    })
+    .finally(() => {
+      clientInFlightRequests.delete(key);
+    });
+
+  clientInFlightRequests.set(key, request);
+  return request;
 }
 
 function todayIso(offset = 0) {
@@ -76,6 +105,17 @@ function prettyDateLabel(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   const date = new Date(year, month - 1, day);
   return date.toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short" });
+}
+
+function useDebouncedValue<T>(value: T, delayMs = 500) {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+
+  return debounced;
 }
 
 function productBg() {
@@ -211,8 +251,10 @@ function StationAutocomplete({
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const deferredQuery = useDeferredValue(query);
-  const matches = useMemo(() => stationMatches(deferredQuery), [deferredQuery]);
+  const debouncedQuery = useDebouncedValue(query, 500);
+  const deferredQuery = useDeferredValue(debouncedQuery);
+  const canSearch = normalizeText(deferredQuery).length >= 3;
+  const matches = useMemo(() => (canSearch ? stationMatches(deferredQuery) : []), [canSearch, deferredQuery]);
 
   useEffect(() => {
     setActive(0);
@@ -262,7 +304,7 @@ function StationAutocomplete({
         />
       </div>
       <AnimatePresence>
-        {open && query.trim() && (
+        {open && query.trim().length >= 3 && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1063,27 +1105,31 @@ function ClassDetailModal({ train, classCode, journeyDate, onClose }: { train: a
     let mounted = true;
     const source = train.source;
     const destination = train.destination;
+    const fallbackAvailability = train.classAvailability?.[classCode]?.[0];
     setClassState({ loading: true, error: "", fare: "", availability: "" });
-    Promise.allSettled([
-      postJson<any>("/api/availability", { trainNo: train.trainNo, source, destination, date: journeyDate, classType: classCode }),
-      postJson<any>("/api/fare", { trainNo: train.trainNo, source, destination, date: journeyDate, classType: classCode }),
-    ]).then(([availabilityResult, fareResult]) => {
+    postJson<any>("/api/fare", { trainNo: train.trainNo, source, destination, date: journeyDate, classType: classCode }).then((fareData) => {
       if (!mounted) return;
-      const availabilityData = availabilityResult.status === "fulfilled" ? availabilityResult.value : null;
-      const fareData = fareResult.status === "fulfilled" ? fareResult.value : null;
-      const firstAvailability = availabilityData?.data?.availability?.[0] || availabilityData?.availability?.[0] || train.classAvailability?.[classCode]?.[0];
-      const fareValue = fareData?.fare || firstAvailability?.fare || train.classAvailability?.[classCode]?.[0]?.fare || "";
+      const firstAvailability = fareData?.availability?.data?.availability?.[0] || fareData?.availability?.availability?.[0] || fallbackAvailability;
+      const fareValue = fareData?.fare || firstAvailability?.fare || fallbackAvailability?.fare || "";
       setClassState({
         loading: false,
-        error: availabilityResult.status === "rejected" && fareResult.status === "rejected" ? "Live class data unavailable. Showing cached estimate." : "",
+        error: "",
         fare: fareValue ? `₹${String(fareValue).replace(/^₹/, "")}` : train.fare || "Fare on enquiry",
-        availability: readableRailStatus(firstAvailability?.availabilityText || firstAvailability?.text || firstAvailability?.status || train.classAvailability?.[classCode]?.[0]?.text || train.availability) || "Check seats",
+        availability: readableRailStatus(firstAvailability?.availabilityText || firstAvailability?.text || firstAvailability?.status || fallbackAvailability?.text || train.availability) || "Check seats",
+      });
+    }).catch(() => {
+      if (!mounted) return;
+      setClassState({
+        loading: false,
+        error: "Live class data unavailable. Showing cached estimate.",
+        fare: fallbackAvailability?.fare ? `₹${fallbackAvailability.fare}` : train.fare || "Fare on enquiry",
+        availability: readableRailStatus(fallbackAvailability?.text || train.availability) || "Check seats",
       });
     });
     return () => {
       mounted = false;
     };
-  }, [classCode, journeyDate, train]);
+  }, [classCode, journeyDate, train.availability, train.classAvailability, train.destination, train.fare, train.source, train.trainNo]);
 
   return (
     <motion.div className="fixed inset-0 z-[70] bg-slate-950/50 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>

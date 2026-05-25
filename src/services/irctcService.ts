@@ -39,10 +39,10 @@ class ConcurrencyLimiter {
   }
 }
 
-const apiLimiter = new ConcurrencyLimiter(8); // Increased to 8 for massive speedup
+const apiLimiter = new ConcurrencyLimiter(3);
 
 // Asynchronous retry system with backoff to recover from 429 rate limit statuses gracefully
-async function fetchWithRetry(key: string, fetchFn: () => Promise<any>, retries = 3, delayMs = 1500) {
+async function fetchWithRetry(key: string, fetchFn: () => Promise<any>, retries = 1, delayMs = 1500) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const data = await fetchFn();
@@ -64,6 +64,7 @@ async function fetchWithRetry(key: string, fetchFn: () => Promise<any>, retries 
 
 // Simple in-memory cache to prevent rate-limiting/spamming
 const cache = new Map<string, { data: any, timestamp: number }>();
+const inFlightRequests = new Map<string, Promise<any>>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
 
 async function fetchWithCache(key: string, fetchFn: () => Promise<any>, ttl: number = CACHE_TTL_MS) {
@@ -71,14 +72,23 @@ async function fetchWithCache(key: string, fetchFn: () => Promise<any>, ttl: num
   if (cached && Date.now() - cached.timestamp < ttl) {
     return cached.data;
   }
-  try {
-    const data = await apiLimiter.run(() => fetchWithRetry(key, fetchFn));
-    // Do not cache explicit API failures from proxy
-    if (data && data.success === false) {
+  const inFlight = inFlightRequests.get(key);
+  if (inFlight) return inFlight;
+
+  const request = apiLimiter.run(() => fetchWithRetry(key, fetchFn))
+    .then((data) => {
+      if (!(data && data.success === false)) {
+        cache.set(key, { data, timestamp: Date.now() });
+      }
       return data;
-    }
-    cache.set(key, { data, timestamp: Date.now() });
-    return data;
+    })
+    .finally(() => {
+      inFlightRequests.delete(key);
+    });
+
+  inFlightRequests.set(key, request);
+  try {
+    return await request;
   } catch (error) {
     console.error(`[irctc-connect] Error fetching ${key}:`, error);
     throw error;

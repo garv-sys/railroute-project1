@@ -375,6 +375,8 @@ const STATION_SEARCH_INDEX = stations.map((station) => {
   };
 });
 
+const STATION_MATCH_CACHE = new Map<string, Station[]>();
+
 export const TRAIN_DIRECTORY: TrainDetails[] = [
   {
     trainNo: "12395",
@@ -527,12 +529,16 @@ export function normalizeText(value: string) {
 export function stationMatches(query: string, limit = 18) {
   const normalized = normalizeText(query);
   if (!normalized) return [];
+  const cacheKey = `${normalized}:${limit}`;
+  const cached = STATION_MATCH_CACHE.get(cacheKey);
+  if (cached) return cached;
+
   const isShortCodeLikeQuery = normalized.length <= 3;
   const aliasMatches = Object.entries(STATION_ALIASES).filter(([alias]) => alias.includes(normalized) || normalized.includes(alias));
   const aliasCodes = aliasMatches.flatMap(([, codes]) => codes);
   const exactAliasCodes = aliasMatches.filter(([alias]) => normalizeText(alias) === normalized).flatMap(([, codes]) => codes);
 
-  return STATION_SEARCH_INDEX
+  const matches = STATION_SEARCH_INDEX
     .map(({ station, name, city, cityNormalized, code }) => {
       const aliasBoost = exactAliasCodes.includes(station.code) ? 620 : aliasCodes.includes(station.code) ? 120 : 0;
       let score = 0;
@@ -548,6 +554,8 @@ export function stationMatches(query: string, limit = 18) {
     .sort((a, b) => b.score - a.score || a.city.localeCompare(b.city))
     .slice(0, limit)
     .map((item) => item.station);
+  STATION_MATCH_CACHE.set(cacheKey, matches);
+  return matches;
 }
 
 export function searchTrainDirectory(query: string) {

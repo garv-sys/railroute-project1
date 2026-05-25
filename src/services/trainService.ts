@@ -468,8 +468,9 @@ async function enrichWithLiveAvailability(train: any, date: string, classType: s
 }
 
 // Helper to estimate realistic travel time based on station codes
-// Only cache SUCCESSFUL results — never cache empty results to ensure fallback logic always triggers
-const searchTrainsCache: Record<string, any[]> = {};
+const searchTrainsCache: Record<string, { data: any[]; timestamp: number }> = {};
+const searchTrainsInFlight = new Map<string, Promise<any[]>>();
+const SEARCH_TRAINS_CACHE_TTL_MS = 2 * 60 * 1000;
 
 // STATIC_FALLBACK lives outside searchTrainsSmart so it can be referenced by HARDCODED_SPLIT_ROUTES too
 const STATIC_FALLBACK: Record<string, any[]> = {
@@ -557,38 +558,47 @@ const HARDCODED_SPLIT_ROUTES: Record<string, any[]> = {
 
 async function searchTrainsSmart(source: string, dest: string, date: string) {
   const cacheKey = `${source}_${dest}_${date}`;
-  // CRITICAL FIX: Only use cache if result is non-empty. Empty results may have been API misses.
-  if (searchTrainsCache[cacheKey] && searchTrainsCache[cacheKey].length > 0) {
-    return searchTrainsCache[cacheKey];
+  const cached = searchTrainsCache[cacheKey];
+  if (cached && Date.now() - cached.timestamp < SEARCH_TRAINS_CACHE_TTL_MS) {
+    return cached.data;
   }
+  const inFlight = searchTrainsInFlight.get(cacheKey);
+  if (inFlight) return inFlight;
 
-  // Check static fallback FIRST before hitting the API (for known routes)
-  const fallbackKey = `${source}_${dest}`;
-  if (STATIC_FALLBACK[fallbackKey]) {
-    console.log(`[Fallback-Priority] Using static train data for ${source} → ${dest}`);
-    searchTrainsCache[cacheKey] = STATIC_FALLBACK[fallbackKey];
-    return STATIC_FALLBACK[fallbackKey];
-  }
-
-  let trains: any[] = [];
-  try {
-    const res = await searchDirectTrains(source, dest, date);
-    if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
-      trains = res.data;
-    } else if (res && Array.isArray(res) && res.length > 0) {
-      trains = res;
+  const request = (async () => {
+    // Check static fallback FIRST before hitting the API (for known routes)
+    const fallbackKey = `${source}_${dest}`;
+    if (STATIC_FALLBACK[fallbackKey]) {
+      console.log(`[Fallback-Priority] Using static train data for ${source} → ${dest}`);
+      searchTrainsCache[cacheKey] = { data: STATIC_FALLBACK[fallbackKey], timestamp: Date.now() };
+      return STATIC_FALLBACK[fallbackKey];
     }
-  } catch {
-    console.warn(`[irctc-connect] API fetch failed for ${source}->${dest}. Returning empty.`);
-    return [];
-  }
 
-  if (trains.length > 0) {
-    searchTrainsCache[cacheKey] = trains;
-  } else {
-    console.warn(`IRCTC returned no available trains between ${source} and ${dest} for ${date}. Returning empty.`);
-  }
-  return trains;
+    let trains: any[] = [];
+    try {
+      const res = await searchDirectTrains(source, dest, date);
+      if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
+        trains = res.data;
+      } else if (res && Array.isArray(res) && res.length > 0) {
+        trains = res;
+      }
+    } catch {
+      console.warn(`[irctc-connect] API fetch failed for ${source}->${dest}. Returning empty.`);
+      searchTrainsCache[cacheKey] = { data: [], timestamp: Date.now() };
+      return [];
+    }
+
+    if (!trains.length) {
+      console.warn(`IRCTC returned no available trains between ${source} and ${dest} for ${date}. Returning empty.`);
+    }
+    searchTrainsCache[cacheKey] = { data: trains, timestamp: Date.now() };
+    return trains;
+  })().finally(() => {
+    searchTrainsInFlight.delete(cacheKey);
+  });
+
+  searchTrainsInFlight.set(cacheKey, request);
+  return request;
 }
 
 export async function checkDirectTrains(source: string, dest: string, date: string, classType: string = 'Any'): Promise<TrainResult[]> {

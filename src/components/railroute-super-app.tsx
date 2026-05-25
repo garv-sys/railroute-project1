@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -272,18 +272,57 @@ function confidenceFor(train: any) {
   return 61;
 }
 
+const CLIENT_CACHE_TTL_MS = 60_000;
+const clientResponseCache = new Map<string, { timestamp: number; data: unknown }>();
+const clientInFlightRequests = new Map<string, Promise<unknown>>();
+
+function stableStringify(value: unknown): string {
+  if (!value || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
+    .join(",")}}`;
+}
+
 function postJson<T>(url: string, body: Record<string, unknown>): Promise<T> {
-  return fetch(url, {
+  const key = `${url}:${stableStringify(body)}`;
+  const cached = clientResponseCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CLIENT_CACHE_TTL_MS) return Promise.resolve(cached.data as T);
+
+  const inFlight = clientInFlightRequests.get(key);
+  if (inFlight) return inFlight as Promise<T>;
+
+  const request = fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  }).then(async (response) => {
-    const data = await response.json();
-    if (!response.ok || data?.success === false) {
-      throw new Error(data?.error || data?.message || "Request failed");
-    }
-    return data as T;
-  });
+  })
+    .then(async (response) => {
+      const data = await response.json();
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || data?.message || "Request failed");
+      }
+      clientResponseCache.set(key, { timestamp: Date.now(), data });
+      return data as T;
+    })
+    .finally(() => {
+      clientInFlightRequests.delete(key);
+    });
+
+  clientInFlightRequests.set(key, request);
+  return request;
+}
+
+function useDebouncedValue<T>(value: T, delayMs = 500) {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+
+  return debounced;
 }
 
 function projectPoint(lat: number, lng: number, zoom: number, pan: { x: number; y: number }) {
@@ -348,18 +387,20 @@ function StationAutocomplete({
 }) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const debouncedQuery = useDebouncedValue(query, 500);
+  const deferredQuery = useDeferredValue(debouncedQuery);
 
   const matches = useMemo(() => {
-    if (!query.trim()) return [];
+    if (normalizeText(deferredQuery).length < 3) return [];
     return stations
-      .map((station) => ({ station, score: stationScore(station, query) }))
+      .map((station) => ({ station, score: stationScore(station, deferredQuery) }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score || stationCityName(a.station).localeCompare(stationCityName(b.station)))
       .slice(0, 50)
       .map((item) => item.station);
-  }, [query]);
+  }, [deferredQuery]);
 
-  useEffect(() => setActiveIndex(0), [query]);
+  useEffect(() => setActiveIndex(0), [deferredQuery]);
 
   function select(station: Station) {
     onSelect(station.code);
@@ -406,7 +447,7 @@ function StationAutocomplete({
         />
       </div>
       <AnimatePresence>
-        {open && query.trim() && (
+        {open && query.trim().length >= 3 && (
           <motion.div
             id={`${label}-station-list`}
             initial={{ opacity: 0, y: 8, scale: 0.98 }}
