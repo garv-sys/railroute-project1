@@ -279,7 +279,7 @@ function groupSeatsForClass(classType: string, seats: ReturnType<typeof buildCoa
 
 function ProductShell({ children, active }: { children: React.ReactNode; active?: ToolKind }) {
   return (
-    <main className={productBg()}>
+    <main className={`${productBg()} notranslate`} translate="no">
       <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_15%_0%,rgba(14,165,233,0.14),transparent_30%),radial-gradient(circle_at_90%_12%,rgba(236,72,153,0.12),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.95)_0%,rgba(241,245,249,0.92)_48%,rgba(226,232,240,0.7)_100%)] dark:bg-[radial-gradient(circle_at_20%_0%,rgba(34,211,238,0.16),transparent_28%),radial-gradient(circle_at_90%_20%,rgba(251,113,133,0.13),transparent_30%),linear-gradient(180deg,#050816_0%,#08111f_48%,#0b1020_100%)]" />
       <nav className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/72 backdrop-blur-2xl dark:border-white/8 dark:bg-[#050816]/78">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
@@ -865,8 +865,10 @@ function TrainSearchPanel({ compact = false }: { compact?: boolean }) {
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Train number or name, e.g. 12395, Rajdhani, Ziyarat Express" className="h-13 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm font-bold outline-none focus:border-cyan-400 dark:border-white/10 dark:bg-white/8 dark:text-white dark:placeholder:text-slate-500" />
         </div>
         <button className="flex h-13 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white dark:bg-white dark:text-slate-950">
-          {state.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-          Search Train
+          <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
+            {state.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+          </span>
+          <span>Search Train</span>
         </button>
       </form>
       {state.error && <p className="mt-4 rounded-2xl border border-rose-300/40 bg-rose-50 p-3 text-sm font-bold text-rose-700 dark:bg-rose-400/10 dark:text-rose-100">{state.error}</p>}
@@ -1015,7 +1017,12 @@ function TrainResultsWorkspace() {
           <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
             <DateQuickField date={date} setDate={setDate} />
             <select value={classType} onChange={(event) => setClassType(event.target.value)} className="h-13 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold dark:border-white/10 dark:bg-[#111827] dark:text-white">{["Any", ...classOptions].map((item) => <option key={item}>{item}</option>)}</select>
-            <button className="flex h-13 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white dark:bg-white dark:text-slate-950">{state.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}Search</button>
+            <button className="flex h-13 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white dark:bg-white dark:text-slate-950">
+              <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
+                {state.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              </span>
+              <span>Search</span>
+            </button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {[
@@ -1546,7 +1553,7 @@ function UtilityCard({ icon: Icon, title, input, setInput, placeholder, action, 
     <div className={softPanel("mx-auto max-w-3xl rounded-[32px] p-5")}>
       <Icon className="h-7 w-7 text-cyan-600 dark:text-cyan-200" />
       <h2 className="mt-4 text-3xl font-black">{title}</h2>
-      <div className="mt-5 flex flex-col gap-3 sm:flex-row"><input value={input} onChange={(event) => setInput(event.target.value)} placeholder={placeholder} className="h-13 flex-1 rounded-2xl border border-slate-200 bg-white px-4 font-bold dark:border-white/10 dark:bg-white/8 dark:text-white" /><button onClick={onAction} className="rounded-2xl bg-slate-950 px-6 font-black text-white dark:bg-white dark:text-slate-950">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : action}</button></div>
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row"><input value={input} onChange={(event) => setInput(event.target.value)} placeholder={placeholder} className="h-13 flex-1 rounded-2xl border border-slate-200 bg-white px-4 font-bold dark:border-white/10 dark:bg-white/8 dark:text-white" /><button onClick={onAction} className="flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 font-black text-white dark:bg-white dark:text-slate-950"><span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}</span><span>{loading ? "Checking" : action}</span></button></div>
       {result && <div className="mt-5 rounded-2xl bg-emerald-50 p-4 font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">{result}</div>}
       {error && <div className="mt-5 rounded-2xl bg-rose-50 p-4 font-black text-rose-700 dark:bg-rose-300/12 dark:text-rose-100">{error}</div>}
     </div>
