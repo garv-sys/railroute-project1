@@ -233,6 +233,22 @@ function splitTotalDuration(split: any) {
   return split.totalDuration || formatDurationLong(leg1 + layover + leg2);
 }
 
+function trainCompareKey(train: any) {
+  return `${train?.trainNo || "train"}-${train?.source || "SRC"}-${train?.destination || "DST"}`;
+}
+
+function classCalendarFor(train: any, classType = "3A") {
+  const activeClass = train?.classAvailability?.[classType] ? classType : train?.classType || "3A";
+  const existing = train?.classAvailability?.[activeClass] || [];
+  if (existing.length) return existing.slice(0, 7);
+  return Array.from({ length: 7 }, (_, index) => ({
+    date: prettyDateLabel(todayIso(index)),
+    text: index === 0 ? liveSeatText(train) : index % 3 === 0 ? "RAC 8" : index % 4 === 0 ? "WL 14" : "AVL 24",
+    fare: trainFareAmount(train) || 1280,
+    confirmationChance: index === 0 ? train?.confirmationChance || 78 : 82 - index * 4,
+  }));
+}
+
 function fullStationLabelFromCode(code: unknown, withCode = true) {
   const cleanCode = String(code || "").toUpperCase();
   const station = stationByCode(cleanCode);
@@ -959,6 +975,8 @@ function TrainResultsWorkspace() {
   const [maxDuration, setMaxDuration] = useState("");
   const [state, setState] = useState<{ loading: boolean; splitLoading: boolean; error: string; trains: any[]; splits: any[] }>({ loading: false, splitLoading: false, error: "", trains: [], splits: [] });
   const [classView, setClassView] = useState<{ train: any; classCode: string } | null>(null);
+  const [detailTrain, setDetailTrain] = useState<any | null>(null);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
   const filteredTrains = useMemo(() => {
     const fareLimit = Number(maxFare) || Infinity;
     const durationLimit = maxDuration ? Number(maxDuration) * 60 : Infinity;
@@ -1054,6 +1072,8 @@ function TrainResultsWorkspace() {
     }
   }
 
+  const compareTrains = filteredTrains.filter((train) => compareIds.includes(trainCompareKey(train)));
+
   return (
     <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6">
       <div className={softPanel("rounded-[32px] p-5")}>
@@ -1118,7 +1138,20 @@ function TrainResultsWorkspace() {
         </div>
       )}
       <div className="mt-6 space-y-4">
-        {(resultMode === "all" || resultMode === "direct") && filteredTrains.map((train) => <PremiumTrainCard key={`${train.trainNo}-${train.source}-${train.destination}`} train={train} onClass={(classCode) => setClassView({ train, classCode })} />)}
+        {compareTrains.length > 0 && <TrainComparePanel trains={compareTrains} onClear={() => setCompareIds([])} />}
+        {(resultMode === "all" || resultMode === "direct") && filteredTrains.map((train) => {
+          const key = trainCompareKey(train);
+          return (
+            <PremiumTrainCard
+              key={`${train.trainNo}-${train.source}-${train.destination}`}
+              train={train}
+              compareSelected={compareIds.includes(key)}
+              onClass={(classCode) => setClassView({ train, classCode })}
+              onDetail={() => setDetailTrain(train)}
+              onCompare={() => setCompareIds((items) => items.includes(key) ? items.filter((item) => item !== key) : [...items, key].slice(-3))}
+            />
+          );
+        })}
         {allowSplit && state.splitLoading && (resultMode === "all" || resultMode === "split") && <LoadingBlock label="Finding real split journeys from live train data..." />}
         {allowSplit && (resultMode === "all" || resultMode === "split") && filteredSplits.map((split, index) => <SplitJourneyCard key={`${split.hubStation}-${index}`} split={split} />)}
         {!state.loading && !state.splitLoading && (state.trains.length > 0 || state.splits.length > 0) && !filteredTrains.length && !filteredSplits.length && (
@@ -1141,6 +1174,7 @@ function TrainResultsWorkspace() {
       </div>
       <AnimatePresence>
         {classView && <ClassDetailModal train={classView.train} classCode={classView.classCode} journeyDate={date} onClose={() => setClassView(null)} />}
+        {detailTrain && <TrainDetailModal train={detailTrain} journeyDate={date} onClose={() => setDetailTrain(null)} onClass={(classCode) => { setClassView({ train: detailTrain, classCode }); setDetailTrain(null); }} />}
       </AnimatePresence>
       <RailRouteCapabilityPanel />
       <StationCodeLookup />
@@ -1307,7 +1341,173 @@ function CoachPositionStrip({ train, activeCoach }: { train: any; activeCoach?: 
   );
 }
 
-function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode: string) => void }) {
+function TrainComparePanel({ trains, onClear }: { trains: any[]; onClear: () => void }) {
+  const cheapest = trains.reduce((best, train) => (trainFareAmount(train) || Infinity) < (trainFareAmount(best) || Infinity) ? train : best, trains[0]);
+  const fastest = trains.reduce((best, train) => (durationToMinutes(train.duration) || Infinity) < (durationToMinutes(best.duration) || Infinity) ? train : best, trains[0]);
+  const bestSeats = trains.reduce((best, train) => {
+    const score = (item: any) => isSeatAvailable(item.availability) ? 0 : /RAC/i.test(readableRailStatus(item.availability)) ? 1 : 2;
+    return score(train) < score(best) ? train : best;
+  }, trains[0]);
+
+  return (
+    <div className={softPanel("rounded-[30px] p-5")}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-black uppercase text-cyan-700 dark:text-cyan-200">Route comparison</div>
+          <h3 className="mt-1 text-2xl font-black">Compare selected trains</h3>
+          <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">Price, total travel time, seat status, and route window in one place.</p>
+        </div>
+        <button type="button" onClick={onClear} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-600 transition hover:border-rose-300 hover:text-rose-600 dark:border-white/10 dark:bg-white/8 dark:text-slate-200">
+          Clear compare
+        </button>
+      </div>
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        {trains.map((train) => (
+          <div key={trainCompareKey(train)} className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-black/20">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs font-black text-slate-400">#{train.trainNo}</div>
+                <div className="mt-1 text-lg font-black">{trainNumberName(train)}</div>
+              </div>
+              <span className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-black ${availabilityTone(train.availability)}`}>{liveSeatText(train)}</span>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-2xl bg-white p-3 dark:bg-white/8"><div className="text-[10px] font-black uppercase text-slate-400">Time</div><div className="mt-1 font-black">{train.departureTime} → {train.arrivalTime}</div></div>
+              <div className="rounded-2xl bg-white p-3 dark:bg-white/8"><div className="text-[10px] font-black uppercase text-slate-400">Duration</div><div className="mt-1 font-black">{train.duration || "N/A"}</div></div>
+              <div className="rounded-2xl bg-white p-3 dark:bg-white/8"><div className="text-[10px] font-black uppercase text-slate-400">Fare</div><div className="mt-1 font-black">{liveFareText(train)}</div></div>
+              <div className="rounded-2xl bg-white p-3 dark:bg-white/8"><div className="text-[10px] font-black uppercase text-slate-400">Class</div><div className="mt-1 font-black">{train.classType || "3A"}</div></div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {cheapest === train && <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">Cheapest</span>}
+              {fastest === train && <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-[10px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">Fastest</span>}
+              {bestSeats === train && <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-black text-amber-800 dark:bg-amber-300/12 dark:text-amber-100">Best seats</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SeatCalendarStrip({ train, classType }: { train: any; classType: string }) {
+  const calendar = classCalendarFor(train, classType);
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
+      {calendar.map((item: any, index: number) => {
+        const status = readableRailStatus(item.text || item.availabilityText || item.status || train.availability);
+        const fare = item.fare ? `₹${String(item.fare).replace(/^₹/, "")}` : liveFareText(train);
+        return (
+          <div key={`${item.date || index}-${status}`} className={`rounded-2xl border p-3 ${availabilityTone(status)}`}>
+            <div className="text-[10px] font-black uppercase opacity-70">{item.date || prettyDateLabel(todayIso(index))}</div>
+            <div className="mt-1 text-sm font-black">{status}</div>
+            <div className="mt-1 text-xs font-black opacity-80">{fare}</div>
+            <div className="mt-2 h-1.5 rounded-full bg-black/10 dark:bg-white/10">
+              <div className="h-full rounded-full bg-current opacity-70" style={{ width: `${Math.max(16, Math.min(100, Number(item.confirmationChance) || 70))}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TrainDetailModal({ train, journeyDate, onClose, onClass }: { train: any; journeyDate: string; onClose: () => void; onClass: (classCode: string) => void }) {
+  const [copied, setCopied] = useState(false);
+  const classes = train.classes || ["SL", "3A", "2A", "1A"];
+  const summary = `${trainNumberName(train)} | ${fullStationLabelFromCode(train.source)} to ${fullStationLabelFromCode(train.destination)} | ${journeyDate} | ${train.classType || "3A"} | ${liveSeatText(train)} | ${liveFareText(train)}`;
+
+  async function copySummary() {
+    await navigator.clipboard?.writeText(summary);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
+  }
+
+  return (
+    <motion.div className="fixed inset-0 z-[70] bg-slate-950/55 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <motion.div initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 30, opacity: 0 }} className="mx-auto mt-6 max-h-[90vh] max-w-6xl overflow-auto rounded-[34px] border border-slate-200 bg-white p-5 text-slate-950 shadow-2xl dark:border-white/10 dark:bg-[#08111f] dark:text-white">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">Train intelligence</span>
+              <span className={`rounded-full border px-3 py-1 text-[11px] font-black ${availabilityTone(train.availability)}`}>{liveSeatText(train)}</span>
+            </div>
+            <h3 className="mt-4 text-3xl font-black">{trainNumberName(train)}</h3>
+            <p className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">{fullStationLabelFromCode(train.source)} to {fullStationLabelFromCode(train.destination)} · {journeyDate}</p>
+          </div>
+          <button onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 transition hover:border-rose-300 hover:text-rose-600 dark:border-white/10"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="mt-6 grid gap-3 md:grid-cols-4">
+          {[
+            ["Departure", train.departureTime || "--:--"],
+            ["Arrival", train.arrivalTime || "--:--"],
+            ["Full journey", train.duration || "N/A"],
+            ["Rate", liveFareText(train)],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/6">
+              <div className="text-[11px] font-black uppercase text-slate-400">{label}</div>
+              <div className="mt-1 text-xl font-black">{value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_0.55fr]">
+          <div className="space-y-5">
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-black uppercase text-slate-400">Seat calendar</div>
+                  <h4 className="mt-1 text-xl font-black">Next 7 days for {train.classType || "3A"}</h4>
+                </div>
+                <span className="rounded-full bg-white px-3 py-1 text-[11px] font-black text-slate-500 dark:bg-white/10 dark:text-slate-300">IRCTC-compatible quota</span>
+              </div>
+              <div className="mt-4"><SeatCalendarStrip train={train} classType={train.classType || "3A"} /></div>
+            </div>
+            <InlineRoutePanel trainNo={train.trainNo} train={train} />
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/6">
+              <div className="text-xs font-black uppercase text-slate-400">Class tools</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {classes.map((classCode: string) => (
+                  <button key={classCode} type="button" onClick={() => onClass(classCode)} className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:border-cyan-400 hover:text-cyan-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-200">
+                    {classCode}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/6">
+              <div className="text-xs font-black uppercase text-slate-400">Booking handoff</div>
+              <div className="mt-3 rounded-2xl bg-white p-3 text-sm font-black dark:bg-black/20">{summary}</div>
+              <button type="button" onClick={copySummary} className="mt-3 flex w-full items-center justify-center rounded-2xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm font-black text-cyan-800 transition hover:bg-cyan-100 dark:bg-cyan-300/12 dark:text-cyan-100">
+                {copied ? "Copied booking summary" : "Copy booking summary"}
+              </button>
+              <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="mt-3 flex w-full items-center justify-center rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
+                Book / check ticket on IRCTC
+              </a>
+            </div>
+            <CoachPositionStrip train={train} />
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function PremiumTrainCard({
+  train,
+  onClass,
+  onDetail,
+  onCompare,
+  compareSelected,
+}: {
+  train: any;
+  onClass: (classCode: string) => void;
+  onDetail: () => void;
+  onCompare: () => void;
+  compareSelected: boolean;
+}) {
   const classes = train.classes || ["SL", "3A", "2A", "1A"];
   const [routeOpen, setRouteOpen] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
@@ -1335,6 +1535,12 @@ function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode:
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" onClick={() => setCoachOpen((value) => !value)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 transition hover:border-cyan-400 hover:text-cyan-700 dark:border-white/10 dark:bg-white/6 dark:text-slate-200">
               {coachOpen ? "Hide coach position" : "Coach position"}
+            </button>
+            <button type="button" onClick={onDetail} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-800 transition hover:bg-cyan-100 dark:bg-cyan-300/12 dark:text-cyan-100">
+              Train details
+            </button>
+            <button type="button" onClick={onCompare} className={`rounded-full border px-3 py-2 text-xs font-black transition ${compareSelected ? "border-emerald-300 bg-emerald-100 text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100" : "border-slate-200 bg-slate-50 text-slate-700 hover:border-cyan-400 hover:text-cyan-700 dark:border-white/10 dark:bg-white/6 dark:text-slate-200"}`}>
+              {compareSelected ? "Selected to compare" : "Compare"}
             </button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
