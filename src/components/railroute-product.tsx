@@ -150,6 +150,20 @@ function ticketDecision(value: unknown) {
   return { label: "Check on IRCTC", tone: "bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200" };
 }
 
+function availabilityTone(value: unknown) {
+  const status = readableRailStatus(value).toUpperCase();
+  if (/\bAVAILABLE\b|\bAVL\b|CNF|CONFIRM/.test(status)) {
+    return "border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-300/25 dark:bg-emerald-300/12 dark:text-emerald-100";
+  }
+  if (/RAC/.test(status)) {
+    return "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-300/25 dark:bg-amber-300/12 dark:text-amber-100";
+  }
+  if (/WL|WAIT|REGRET|UNAVAILABLE|NOT RUNNING/.test(status)) {
+    return "border-rose-300 bg-rose-100 text-rose-800 dark:border-rose-300/25 dark:bg-rose-300/12 dark:text-rose-100";
+  }
+  return "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-slate-200";
+}
+
 function trainRouteHref(trainNo: unknown) {
   return `/route?query=${encodeURIComponent(String(trainNo || ""))}`;
 }
@@ -168,6 +182,30 @@ function estimatedClassFare(classCode: string, trainFare: unknown) {
   }
   const base: Record<string, number> = { SL: 420, "3E": 990, "3A": 1280, "2A": 1860, "1A": 3180, CC: 740, EC: 1480 };
   return formatFare(base[classCode] || 1280);
+}
+
+function durationToMinutes(value: unknown) {
+  const text = String(value || "").toLowerCase();
+  if (!text || text === "n/a") return 0;
+  const colon = text.match(/(\d{1,2}):(\d{2})/);
+  if (colon) return Number(colon[1]) * 60 + Number(colon[2]);
+  const hour = text.match(/(\d+)\s*h/);
+  const minute = text.match(/(\d+)\s*m/);
+  return (hour ? Number(hour[1]) * 60 : 0) + (minute ? Number(minute[1]) : 0);
+}
+
+function formatDurationLong(minutes: number) {
+  if (!minutes) return "--";
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours}h ${String(mins).padStart(2, "0")}m`;
+}
+
+function splitTotalDuration(split: any) {
+  const leg1 = durationToMinutes(split.leg1?.duration);
+  const leg2 = durationToMinutes(split.leg2?.duration);
+  const layover = Math.round(Number(split.layoverHours || 0) * 60) || durationToMinutes(split.layoverDuration);
+  return split.totalDuration || formatDurationLong(leg1 + layover + leg2);
 }
 
 function compatibleCoaches(classType: string) {
@@ -909,17 +947,18 @@ function TrainResultsWorkspace() {
     setState({ loading: true, error: "", trains: [], splits: [] });
     try {
       const direct = await postJson<any>("/api/train-between", payload);
-      let splits: any[] = [];
+      const trains = direct.trains || [];
+      const quickSplits = allowSplit ? buildFallbackSplits(payload.source, payload.destination, trains).slice(0, 2) : [];
+      setState({ loading: false, error: "", trains, splits: quickSplits });
+
       if (allowSplit) {
-        try {
-          const splitData = await postJson<any>("/api/search-split", { ...payload, directTrains: direct.trains || [] });
-          splits = splitData.splitRoutes || [];
-        } catch {
-          splits = [];
-        }
-        if (!splits.length) splits = buildFallbackSplits(payload.source, payload.destination, direct.trains || []);
+        postJson<any>("/api/search-split", { ...payload, directTrains: trains })
+          .then((splitData) => {
+            const liveSplits = splitData.splitRoutes || [];
+            if (liveSplits.length) setState((current) => ({ ...current, splits: liveSplits }));
+          })
+          .catch(() => undefined);
       }
-      setState({ loading: false, error: "", trains: direct.trains || [], splits });
     } catch (error) {
       setState({ loading: false, error: error instanceof Error ? error.message : "Train search failed.", trains: [], splits: [] });
     }
@@ -1067,9 +1106,52 @@ function LoadingBlock({ label }: { label: string }) {
   );
 }
 
+function coachPositionFor(train: any) {
+  const classes = (train.classes || ["SL", "3A", "2A"]).map((item: string) => item.toUpperCase());
+  const coaches = ["Loco", "LPR", "GEN", "GEN"];
+  if (classes.includes("1A")) coaches.push("H1");
+  if (classes.includes("2A")) coaches.push("A2", "A1");
+  if (classes.includes("3E")) coaches.push("M1");
+  if (classes.includes("3A")) coaches.push("B5", "B4", "B3", "B2", "B1");
+  if (classes.includes("SL")) coaches.push("S6", "S5", "S4", "S3", "S2", "S1");
+  if (classes.includes("CC")) coaches.push("C3", "C2", "C1");
+  if (classes.includes("EC")) coaches.push("E1");
+  return coaches.slice(0, 14);
+}
+
+function CoachPositionStrip({ train, activeCoach }: { train: any; activeCoach?: string }) {
+  const coaches = coachPositionFor(train);
+  const selected = activeCoach || coaches.find((coach) => /^[ABHSMCE]\d/.test(coach));
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-black/20">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">Coach position</div>
+        <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-black text-amber-800 dark:bg-amber-300/12 dark:text-amber-100">Verify at station</span>
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {coaches.map((coach, index) => (
+          <div key={`${coach}-${index}`} className="shrink-0 text-center">
+            <div className={`h-8 min-w-14 rounded-xl border px-2 text-[11px] font-black leading-8 ${
+              coach === selected
+                ? "border-cyan-400 bg-cyan-500 text-white shadow-lg shadow-cyan-500/25"
+                : coach === "Loco"
+                  ? "border-slate-300 bg-slate-900 text-white dark:border-white/10"
+                  : "border-slate-200 bg-white text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-200"
+            }`}>
+              {coach}
+            </div>
+            <div className="mt-1 text-[10px] font-black text-slate-400">{index + 1}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode: string) => void }) {
   const classes = train.classes || ["SL", "3A", "2A", "1A"];
   const [routeOpen, setRouteOpen] = useState(false);
+  const [coachOpen, setCoachOpen] = useState(false);
   return (
     <article className={softPanel("overflow-hidden rounded-[30px]")}>
       <div className="grid gap-5 p-5 lg:grid-cols-[1fr_260px]">
@@ -1092,6 +1174,9 @@ function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode:
             <Link href={trainRouteHref(train.trainNo)} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">
               Open full route
             </Link>
+            <button type="button" onClick={() => setCoachOpen((value) => !value)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 transition hover:border-cyan-400 hover:text-cyan-700 dark:border-white/10 dark:bg-white/6 dark:text-slate-200">
+              {coachOpen ? "Hide coach position" : "Coach position"}
+            </button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {classes.map((classCode: string) => (
@@ -1100,12 +1185,13 @@ function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode:
               </button>
             ))}
           </div>
+          {coachOpen && <div className="mt-4"><CoachPositionStrip train={train} /></div>}
           {routeOpen && <InlineRoutePanel trainNo={train.trainNo} train={train} />}
         </div>
         <div className="rounded-3xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/8">
           <div className="text-[11px] font-black uppercase text-slate-400">Ticket status</div>
           <div className={`mt-2 rounded-2xl p-3 text-xl font-black ${ticketDecision(train.availability).tone}`}>{ticketDecision(train.availability).label}</div>
-          <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm font-black text-slate-600 dark:bg-black/20 dark:text-slate-300">{readableRailStatus(train.availability) || "Seat intelligence ready"}</div>
+          <div className={`mt-3 rounded-2xl border p-3 text-sm font-black ${availabilityTone(train.availability)}`}>{readableRailStatus(train.availability) || "Seat intelligence ready"}</div>
           <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="mt-4 flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
             Book / check ticket on IRCTC
           </a>
@@ -1219,7 +1305,7 @@ function ClassDetailModal({ train, classCode, journeyDate, onClose }: { train: a
               ["Quota", "GN · Tatkal ready"],
               ["Coach options", classCode === "1A" ? "H1 · HA1 · Cabin/Coupe" : classCode === "2A" ? "A1 · A2 · HA1" : classCode === "SL" ? "S1 · S2 · S3" : "B1 · B2 · B3"],
             ].map(([label, value]) => (
-              <div key={label} className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/6"><div className="text-[11px] font-black uppercase text-slate-400">{label}</div><div className="mt-1 text-xl font-black">{value}</div></div>
+              <div key={label} className={`rounded-3xl border p-4 ${label === "Availability" && !classState.loading ? availabilityTone(value) : "border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/6"}`}><div className="text-[11px] font-black uppercase text-slate-400">{label}</div><div className="mt-1 text-xl font-black">{value}</div></div>
             ))}
             <div className={`rounded-3xl p-4 text-sm font-black ${decision.tone}`}>
               Ticket check: {classState.loading ? "Checking..." : decision.label}
@@ -1241,6 +1327,7 @@ function SplitJourneyCard({ split }: { split: any }) {
   const leg2 = split.leg2 || {};
   const leg1Fare = split.leg1Fare || leg1.fare || "₹--";
   const leg2Fare = split.leg2Fare || leg2.fare || "₹--";
+  const totalDuration = splitTotalDuration(split);
   return (
     <article className={softPanel("rounded-[30px] p-5")}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1250,12 +1337,14 @@ function SplitJourneyCard({ split }: { split: any }) {
         </div>
         <div className="rounded-2xl bg-slate-50 p-4 text-sm font-black dark:bg-black/20">
           <div className="text-[11px] uppercase text-slate-400">Final cost</div>
-          <div className="text-xl">₹{split.totalFare || "--"} · {split.layoverDuration || "2h layover"}</div>
+          <div className="text-xl">₹{split.totalFare || "--"} · {totalDuration}</div>
+          <div className="mt-1 text-[11px] font-black text-slate-400">Layover {split.layoverDuration || "--"}</div>
         </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">Journey 1 rate: {formatFare(leg1Fare)}</span>
         <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">Journey 2 rate: {formatFare(leg2Fare)}</span>
+        <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">Total journey: {totalDuration}</span>
         <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white dark:bg-white dark:text-slate-950">Connect to IRCTC</a>
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-3">
@@ -1271,7 +1360,14 @@ function SplitJourneyCard({ split }: { split: any }) {
           <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-black dark:bg-black/20">
             {stationLabelFromCode(leg1.source || "PNBE", false)} {leg1.departureTime || "--:--"} → {stationLabelFromCode(leg1.destination || split.hubStation || "CNB", false)} {leg1.arrivalTime || "--:--"}
           </div>
-          <div className="mt-2 text-xs font-bold text-slate-500">Duration {leg1.duration || "--"} · {readableRailStatus(leg1.availability) || "Check seats"}</div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold text-slate-500">Duration {leg1.duration || "--"}</span>
+            <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${availabilityTone(leg1.availability)}`}>{readableRailStatus(leg1.availability) || "Check seats"}</span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link href={trainRouteHref(leg1.trainNo)} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-1.5 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">Route</Link>
+            <Link href={`/coach?class=${encodeURIComponent(leg1.classType || "3A")}`} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-black text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-200">Coach layout</Link>
+          </div>
         </div>
         <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-300/20 dark:bg-violet-300/10">
           <div className="text-sm text-slate-500">Platform change</div>
@@ -1279,6 +1375,7 @@ function SplitJourneyCard({ split }: { split: any }) {
           <br />
           <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">8 minutes · use foot overbridge</span>
           <div className="mt-3 text-xs font-black text-violet-700 dark:text-violet-100">Layover window: {leg1.arrivalTime || "--:--"} to {leg2.departureTime || "--:--"}</div>
+          <div className="mt-3 rounded-2xl bg-white/70 p-3 text-xs font-black text-violet-800 dark:bg-black/20 dark:text-violet-100">Full journey time: {totalDuration}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
           <div className="flex items-start justify-between gap-3">
@@ -1292,8 +1389,19 @@ function SplitJourneyCard({ split }: { split: any }) {
           <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-black dark:bg-black/20">
             {stationLabelFromCode(leg2.source || split.hubStation || "CNB", false)} {leg2.departureTime || "--:--"} → {stationLabelFromCode(leg2.destination || "SBC", false)} {leg2.arrivalTime || "--:--"}
           </div>
-          <div className="mt-2 text-xs font-bold text-slate-500">Duration {leg2.duration || "--"} · {readableRailStatus(leg2.availability) || "Check seats"}</div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold text-slate-500">Duration {leg2.duration || "--"}</span>
+            <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${availabilityTone(leg2.availability)}`}>{readableRailStatus(leg2.availability) || "Check seats"}</span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link href={trainRouteHref(leg2.trainNo)} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-1.5 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">Route</Link>
+            <Link href={`/coach?class=${encodeURIComponent(leg2.classType || "3A")}`} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-black text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-200">Coach layout</Link>
+          </div>
         </div>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <CoachPositionStrip train={leg1} />
+        <CoachPositionStrip train={leg2} />
       </div>
     </article>
   );
