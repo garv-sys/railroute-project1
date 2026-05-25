@@ -26,7 +26,17 @@ export type TrainDetails = {
   route: RouteStop[];
 };
 
-export const stations = STATIONS as Station[];
+const SUPPLEMENTAL_STATIONS: Station[] = [
+  { code: "DDU", name: "PT DEEN DAYAL UPADHYAYA JN" },
+  { code: "PRYJ", name: "PRAYAGRAJ JN" },
+  { code: "SMVB", name: "SMVT BENGALURU" },
+  { code: "RJPB", name: "RAJENDRA NAGAR BIHAR" },
+];
+
+export const stations = [
+  ...(STATIONS as Station[]),
+  ...SUPPLEMENTAL_STATIONS.filter((extra) => !(STATIONS as Station[]).some((station) => station.code === extra.code)),
+];
 
 export const STATE_BY_CODE: Record<string, string> = {
   NDLS: "Delhi",
@@ -55,6 +65,7 @@ export const STATE_BY_CODE: Record<string, string> = {
   SBC: "Karnataka",
   BNC: "Karnataka",
   BNCE: "Karnataka",
+  SMVB: "Karnataka",
   YPR: "Karnataka",
   SC: "Telangana",
   HYB: "Telangana",
@@ -62,9 +73,9 @@ export const STATE_BY_CODE: Record<string, string> = {
   LKO: "Uttar Pradesh",
   CNB: "Uttar Pradesh",
   DDU: "Uttar Pradesh",
+  PRYJ: "Uttar Pradesh",
   BSB: "Uttar Pradesh",
   AGC: "Uttar Pradesh",
-  PRYJ: "Uttar Pradesh",
   GZB: "Uttar Pradesh",
   BPL: "Madhya Pradesh",
   NGP: "Maharashtra",
@@ -79,6 +90,7 @@ export const STATE_BY_CODE: Record<string, string> = {
 export const STATION_COORDS: Record<string, { lat: number; lng: number }> = {
   PNBE: { lat: 25.6094, lng: 85.1376 },
   DDU: { lat: 25.2733, lng: 83.0087 },
+  PRYJ: { lat: 25.4358, lng: 81.8463 },
   CNB: { lat: 26.4535, lng: 80.3483 },
   NDLS: { lat: 28.6423, lng: 77.2209 },
   JP: { lat: 26.9196, lng: 75.7878 },
@@ -88,6 +100,7 @@ export const STATION_COORDS: Record<string, { lat: number; lng: number }> = {
   MAS: { lat: 13.0827, lng: 80.2756 },
   SBC: { lat: 12.9774, lng: 77.5708 },
   BNC: { lat: 12.9922, lng: 77.598 },
+  SMVB: { lat: 13.0358, lng: 77.7228 },
   YPR: { lat: 13.0238, lng: 77.5507 },
   SC: { lat: 17.4344, lng: 78.5013 },
   ADI: { lat: 23.0225, lng: 72.5714 },
@@ -100,12 +113,17 @@ export const STATION_COORDS: Record<string, { lat: number; lng: number }> = {
 };
 
 const STATION_ALIASES: Record<string, string[]> = {
-  bangalore: ["SBC", "BNC", "YPR"],
-  banglore: ["SBC", "BNC", "YPR"],
-  bengaluru: ["SBC", "BNC", "YPR"],
-  blr: ["SBC", "BNC", "YPR"],
+  bangalore: ["SBC", "BNC", "SMVB", "YPR"],
+  banglore: ["SBC", "BNC", "SMVB", "YPR"],
+  bengaluru: ["SBC", "BNC", "SMVB", "YPR"],
+  blr: ["SBC", "BNC", "SMVB", "YPR"],
   ksr: ["SBC"],
   majestic: ["SBC"],
+  ddu: ["DDU"],
+  deendayal: ["DDU"],
+  mughalsarai: ["DDU"],
+  pryj: ["PRYJ"],
+  prayagraj: ["PRYJ"],
   patna: ["PNBE", "RJPB", "DNR", "PPTA"],
   delhi: ["NDLS", "DLI", "NZM", "ANVT"],
   mumbai: ["CSMT", "BCT", "LTT", "BDTS"],
@@ -212,7 +230,7 @@ export function stationMatches(query: string, limit = 40) {
       const aliasBoost = aliasCodes.includes(station.code) ? 120 : 0;
       let score = 0;
       score += aliasBoost;
-      if (code === normalized) score += 100;
+      if (code === normalized) score += 500;
       if (code.startsWith(normalized)) score += 80;
       if (city.startsWith(normalized)) score += 70;
       if (name.startsWith(normalized)) score += 58;

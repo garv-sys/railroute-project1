@@ -795,7 +795,46 @@ function TrainResultsWorkspace() {
       <AnimatePresence>
         {classView && <ClassDetailModal train={classView.train} classCode={classView.classCode} journeyDate={date} onClose={() => setClassView(null)} />}
       </AnimatePresence>
+      <StationCodeLookup />
     </section>
+  );
+}
+
+function StationCodeLookup() {
+  const [code, setCode] = useState("");
+  const normalized = code.trim().toUpperCase();
+  const station = normalized ? stationByCode(normalized) : null;
+
+  return (
+    <div className={softPanel("mt-8 rounded-[30px] p-5")}>
+      <div className="grid gap-4 md:grid-cols-[0.8fr_1.2fr] md:items-center">
+        <div>
+          <div className="text-xs font-black uppercase text-cyan-700 dark:text-cyan-200">Station code lookup</div>
+          <h3 className="mt-2 text-2xl font-black">Write a code, get station info</h3>
+          <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-slate-400">Try DDU, PRYJ, PNBE, SBC, SMVB, BNC or any station code.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[220px_1fr]">
+          <input
+            value={code}
+            onChange={(event) => setCode(event.target.value.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 10))}
+            placeholder="e.g. DDU"
+            className="h-13 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black uppercase text-slate-950 outline-none focus:border-cyan-400 dark:border-white/10 dark:bg-white/8 dark:text-white"
+          />
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-black/20">
+            {station ? (
+              <>
+                <div className="text-lg font-black">{stationLabel(station)}</div>
+                <div className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">State: {stationLabel(station, false).match(/\((.*?)\)/)?.[1] || "India"} · Code: {station.code}</div>
+              </>
+            ) : normalized ? (
+              <div className="font-bold text-rose-600 dark:text-rose-200">No station found for {normalized}</div>
+            ) : (
+              <div className="font-bold text-slate-500 dark:text-slate-400">Station details will appear here.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1014,6 +1053,8 @@ function ClassDetailModal({ train, classCode, journeyDate, onClose }: { train: a
 function SplitJourneyCard({ split }: { split: any }) {
   const leg1 = split.leg1 || {};
   const leg2 = split.leg2 || {};
+  const leg1Fare = split.leg1Fare || leg1.fare || "₹--";
+  const leg2Fare = split.leg2Fare || leg2.fare || "₹--";
   return (
     <article className={softPanel("rounded-[30px] p-5")}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1021,11 +1062,19 @@ function SplitJourneyCard({ split }: { split: any }) {
           <span className="rounded-full bg-violet-100 px-3 py-1 text-[11px] font-black text-violet-800 dark:bg-violet-300/12 dark:text-violet-100">Split journey</span>
           <h3 className="mt-3 text-2xl font-black">{stationLabelFromCode(split.leg1?.source || "PNBE", false)} → {stationLabelFromCode(split.hubStation || "NDLS", false)} → {stationLabelFromCode(split.leg2?.destination || "JP", false)}</h3>
         </div>
-        <div className="rounded-2xl bg-slate-50 p-4 text-sm font-black dark:bg-black/20">₹{split.totalFare || "--"} · {split.layoverDuration || "2h layover"}</div>
+        <div className="rounded-2xl bg-slate-50 p-4 text-sm font-black dark:bg-black/20">
+          <div className="text-[11px] uppercase text-slate-400">Final cost</div>
+          <div className="text-xl">₹{split.totalFare || "--"} · {split.layoverDuration || "2h layover"}</div>
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">Journey 1 rate: {String(leg1Fare).startsWith("₹") ? leg1Fare : `₹${leg1Fare}`}</span>
+        <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">Journey 2 rate: {String(leg2Fare).startsWith("₹") ? leg2Fare : `₹${leg2Fare}`}</span>
+        <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white dark:bg-white dark:text-slate-950">Connect to IRCTC</a>
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
-          <div className="text-sm text-slate-500">Train 1</div>
+          <div className="text-sm text-slate-500">Split journey 1</div>
           <b>{leg1.trainName || "Leg 1"}</b>
           <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-black dark:bg-black/20">
             {stationLabelFromCode(leg1.source || "PNBE", false)} {leg1.departureTime || "--:--"} → {stationLabelFromCode(leg1.destination || split.hubStation || "CNB", false)} {leg1.arrivalTime || "--:--"}
@@ -1040,7 +1089,7 @@ function SplitJourneyCard({ split }: { split: any }) {
           <div className="mt-3 text-xs font-black text-violet-700 dark:text-violet-100">Layover window: {leg1.arrivalTime || "--:--"} to {leg2.departureTime || "--:--"}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
-          <div className="text-sm text-slate-500">Train 2</div>
+          <div className="text-sm text-slate-500">Split journey 2</div>
           <b>{leg2.trainName || "Leg 2"}</b>
           <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-black dark:bg-black/20">
             {stationLabelFromCode(leg2.source || split.hubStation || "CNB", false)} {leg2.departureTime || "--:--"} → {stationLabelFromCode(leg2.destination || "SBC", false)} {leg2.arrivalTime || "--:--"}
