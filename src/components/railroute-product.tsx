@@ -32,6 +32,7 @@ import {
   stationLabel,
   stationLabelFromCode,
   stationMatches,
+  stationState,
   STATION_COORDS,
   type Station,
 } from "@/lib/railway-intelligence";
@@ -804,6 +805,7 @@ function StationCodeLookup() {
   const [code, setCode] = useState("");
   const normalized = code.trim().toUpperCase();
   const station = normalized ? stationByCode(normalized) : null;
+  const stationLookupState = station ? stationState(station.code) : null;
 
   return (
     <div className={softPanel("mt-8 rounded-[30px] p-5")}>
@@ -824,7 +826,7 @@ function StationCodeLookup() {
             {station ? (
               <>
                 <div className="text-lg font-black">{stationLabel(station)}</div>
-                <div className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">State: {stationLabel(station, false).match(/\((.*?)\)/)?.[1] || "India"} · Code: {station.code}</div>
+                <div className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">State: {stationLookupState === "India" ? "Unavailable" : stationLookupState} · Code: {station.code}</div>
               </>
             ) : normalized ? (
               <div className="font-bold text-rose-600 dark:text-rose-200">No station found for {normalized}</div>

@@ -1,4 +1,5 @@
 import STATIONS from "@/data/all_stations.json";
+import OFFICIAL_STATION_STATES from "@/data/station_states.json";
 
 export type Station = {
   code: string;
@@ -26,6 +27,8 @@ export type TrainDetails = {
   route: RouteStop[];
 };
 
+const OFFICIAL_STATE_BY_CODE = OFFICIAL_STATION_STATES as Record<string, string>;
+
 const SUPPLEMENTAL_STATIONS: Station[] = [
   { code: "DDU", name: "PT DEEN DAYAL UPADHYAYA JN" },
   { code: "PRYJ", name: "PRAYAGRAJ JN" },
@@ -45,31 +48,55 @@ export const STATE_BY_CODE: Record<string, string> = {
   ANVT: "Delhi",
   JP: "Rajasthan",
   AII: "Rajasthan",
+  BHL: "Rajasthan",
+  BKN: "Rajasthan",
   JU: "Rajasthan",
+  KOTA: "Rajasthan",
+  MJ: "Rajasthan",
+  UDZ: "Rajasthan",
+  AWR: "Rajasthan",
   PNBE: "Bihar",
   PPTA: "Bihar",
   RJPB: "Bihar",
   DNR: "Bihar",
+  BJU: "Bihar",
   GAYA: "Bihar",
   HJP: "Bihar",
+  MFP: "Bihar",
+  BGP: "Bihar",
   CSMT: "Maharashtra",
   BCT: "Maharashtra",
   LTT: "Maharashtra",
   BDTS: "Maharashtra",
   PUNE: "Maharashtra",
+  KYN: "Maharashtra",
   HWH: "West Bengal",
   SDAH: "West Bengal",
   KOAA: "West Bengal",
+  NJP: "West Bengal",
   MAS: "Tamil Nadu",
   MS: "Tamil Nadu",
+  CBE: "Tamil Nadu",
+  MDU: "Tamil Nadu",
+  TPJ: "Tamil Nadu",
   SBC: "Karnataka",
   BNC: "Karnataka",
   BNCE: "Karnataka",
   SMVB: "Karnataka",
   YPR: "Karnataka",
+  MYS: "Karnataka",
+  UBL: "Karnataka",
+  DWR: "Karnataka",
+  MAQ: "Karnataka",
+  MAJN: "Karnataka",
   SC: "Telangana",
   HYB: "Telangana",
+  KCG: "Telangana",
+  WL: "Telangana",
   ADI: "Gujarat",
+  ST: "Gujarat",
+  BRC: "Gujarat",
+  RJT: "Gujarat",
   LKO: "Uttar Pradesh",
   CNB: "Uttar Pradesh",
   DDU: "Uttar Pradesh",
@@ -77,15 +104,205 @@ export const STATE_BY_CODE: Record<string, string> = {
   BSB: "Uttar Pradesh",
   AGC: "Uttar Pradesh",
   GZB: "Uttar Pradesh",
+  SLN: "Uttar Pradesh",
+  GKP: "Uttar Pradesh",
+  MTC: "Uttar Pradesh",
+  MB: "Uttar Pradesh",
+  BE: "Uttar Pradesh",
+  JHS: "Uttar Pradesh",
   BPL: "Madhya Pradesh",
+  REWA: "Madhya Pradesh",
+  GWL: "Madhya Pradesh",
+  INDB: "Madhya Pradesh",
+  JBP: "Madhya Pradesh",
+  KTE: "Madhya Pradesh",
+  STA: "Madhya Pradesh",
+  RTM: "Madhya Pradesh",
   NGP: "Maharashtra",
   KLK: "Haryana",
+  AADR: "Himachal Pradesh",
   SML: "Himachal Pradesh",
   ASR: "Punjab",
+  LDH: "Punjab",
+  JUC: "Punjab",
   CDG: "Chandigarh",
   GHY: "Assam",
+  DMV: "Assam",
   TVC: "Kerala",
+  ERS: "Kerala",
+  ERN: "Kerala",
+  KCVL: "Kerala",
+  CLT: "Kerala",
+  CAN: "Kerala",
+  PGT: "Kerala",
+  BZA: "Andhra Pradesh",
+  VSKP: "Andhra Pradesh",
+  TPTY: "Andhra Pradesh",
+  GNT: "Andhra Pradesh",
+  NLR: "Andhra Pradesh",
+  RJY: "Andhra Pradesh",
+  BBS: "Odisha",
+  CTC: "Odisha",
+  PURI: "Odisha",
+  SBP: "Odisha",
+  ROU: "Odisha",
+  RNC: "Jharkhand",
+  TATA: "Jharkhand",
+  DHN: "Jharkhand",
+  BKSC: "Jharkhand",
+  JAT: "Jammu and Kashmir",
+  SVDK: "Jammu and Kashmir",
+  DDN: "Uttarakhand",
+  HW: "Uttarakhand",
+  KGM: "Uttarakhand",
+  MAO: "Goa",
+  VSG: "Goa",
+  KRMI: "Goa",
 };
+
+const STATE_KEYWORDS: { state: string; keywords: string[] }[] = [
+  {
+    state: "Rajasthan",
+    keywords: [
+      "ajmer",
+      "alwar",
+      "bhilwara",
+      "bikaner",
+      "chittaurgarh",
+      "chittorgarh",
+      "jaipur",
+      "jodhpur",
+      "kota",
+      "marwar",
+      "pali",
+      "rajasthan",
+      "sawai madhopur",
+      "udaipur",
+    ],
+  },
+  {
+    state: "Bihar",
+    keywords: [
+      "ara",
+      "begusarai",
+      "bhagalpur",
+      "bihar",
+      "danapur",
+      "gaya",
+      "hajipur",
+      "muzaffarpur",
+      "patliputra",
+      "patna",
+      "rajendra nagar",
+      "samastipur",
+    ],
+  },
+  {
+    state: "Uttar Pradesh",
+    keywords: [
+      "agra",
+      "aligarh",
+      "ayodhya",
+      "bareilly",
+      "deoria",
+      "ghaziabad",
+      "gorakhpur",
+      "jhansi",
+      "kanpur",
+      "lucknow",
+      "mathura",
+      "meerut",
+      "moradabad",
+      "prayagraj",
+      "sultanpur",
+      "varanasi",
+    ],
+  },
+  {
+    state: "Madhya Pradesh",
+    keywords: ["bhopal", "gwalior", "indore", "jabalpur", "katni", "rewa", "sagar", "satna", "ujjain", "ratlam"],
+  },
+  {
+    state: "Maharashtra",
+    keywords: ["aurangabad", "bandra", "c shivaji", "csmt", "kalyan", "latur", "lokmanyatilak", "mumbai", "nagpur", "pune", "solapur", "thane"],
+  },
+  {
+    state: "Karnataka",
+    keywords: ["bangalore", "bengaluru", "belagavi", "bengalooru", "dharwar", "hubli", "ksr", "mangalore", "mysore", "mysuru", "smvt", "whitefield", "yesvantpur"],
+  },
+  {
+    state: "Tamil Nadu",
+    keywords: ["chennai", "coimbatore", "madurai", "salem", "tiruchchirappalli", "tiruchirappalli", "tirunelveli", "vellore"],
+  },
+  {
+    state: "Kerala",
+    keywords: ["alappuzha", "calicut", "ernakulam", "kannur", "kochi", "kollam", "kozhikode", "palakkad", "thrissur", "trivandrum", "thiruvananthapuram"],
+  },
+  {
+    state: "Telangana",
+    keywords: ["hyderabad", "kachiguda", "secunderabad", "telangana", "warangal"],
+  },
+  {
+    state: "Andhra Pradesh",
+    keywords: ["guntur", "kakinada", "nellore", "rajahmundry", "tirupati", "vijayawada", "visakhapatnam", "vizag"],
+  },
+  {
+    state: "West Bengal",
+    keywords: ["asansol", "howrah", "kolkata", "malda", "new jalpaiguri", "sealdah", "siliguri"],
+  },
+  {
+    state: "Gujarat",
+    keywords: ["ahmedabad", "bharuch", "gandhidham", "rajkot", "surat", "vadodara", "valsad"],
+  },
+  {
+    state: "Punjab",
+    keywords: ["amritsar", "jalandhar", "ludhiana", "pathankot", "punjab"],
+  },
+  {
+    state: "Haryana",
+    keywords: ["ambala", "faridabad", "gurgaon", "gurugram", "hisar", "kalka", "panipat", "rohtak"],
+  },
+  {
+    state: "Odisha",
+    keywords: ["bhubaneswar", "cuttack", "puri", "rourkela", "sambalpur"],
+  },
+  {
+    state: "Jharkhand",
+    keywords: ["bokaro", "dhanbad", "jasidih", "ranchi", "tatanagar"],
+  },
+  {
+    state: "Assam",
+    keywords: ["dibrugarh", "guwahati", "kamakhya", "silchar", "tinsukia"],
+  },
+  {
+    state: "Jammu and Kashmir",
+    keywords: ["jammu", "katra", "srinagar", "udhampur"],
+  },
+  {
+    state: "Uttarakhand",
+    keywords: ["dehradun", "haridwar", "kathgodam", "rishikesh", "roorkee"],
+  },
+  {
+    state: "Goa",
+    keywords: ["goa", "karmali", "madgaon", "margao", "thivim", "vasco"],
+  },
+  {
+    state: "Himachal Pradesh",
+    keywords: ["kalka shimla", "shimla", "solan", "una himachal"],
+  },
+  {
+    state: "Chhattisgarh",
+    keywords: ["bilaspur", "durg", "raipur"],
+  },
+  {
+    state: "Tripura",
+    keywords: ["agartala"],
+  },
+  {
+    state: "Manipur",
+    keywords: ["jiribam"],
+  },
+];
 
 export const STATION_COORDS: Record<string, { lat: number; lng: number }> = {
   PNBE: { lat: 25.6094, lng: 85.1376 },
@@ -193,7 +410,19 @@ export function stationByCode(code: string) {
 }
 
 export function stationState(code: string) {
-  return STATE_BY_CODE[code.toUpperCase()] || "India";
+  const upperCode = code.toUpperCase();
+  if (STATE_BY_CODE[upperCode]) return STATE_BY_CODE[upperCode];
+  if (OFFICIAL_STATE_BY_CODE[upperCode]) return OFFICIAL_STATE_BY_CODE[upperCode];
+
+  const station = stationByCode(upperCode);
+  if (!station) return "India";
+
+  const normalizedName = normalizeText(`${station.name} ${stationCityName(station)}`);
+  const match = STATE_KEYWORDS.find(({ keywords }) => {
+    return keywords.some((keyword) => normalizedName.includes(normalizeText(keyword)));
+  });
+
+  return match?.state || "India";
 }
 
 export function stationCityName(station: Station) {
@@ -201,7 +430,9 @@ export function stationCityName(station: Station) {
 }
 
 export function stationLabel(station: Station, withCode = true) {
-  const label = `${stationCityName(station)} (${stationState(station.code)})`;
+  const state = stationState(station.code);
+  const city = stationCityName(station);
+  const label = state === "India" ? city : `${city} (${state})`;
   return withCode ? `${label} — ${station.code}` : label;
 }
 
@@ -218,6 +449,7 @@ export function normalizeText(value: string) {
 export function stationMatches(query: string, limit = 40) {
   const normalized = normalizeText(query);
   if (!normalized) return [];
+  const isShortCodeLikeQuery = normalized.length <= 3;
   const aliasCodes = Object.entries(STATION_ALIASES)
     .filter(([alias]) => alias.includes(normalized) || normalized.includes(alias))
     .flatMap(([, codes]) => codes);
@@ -234,7 +466,7 @@ export function stationMatches(query: string, limit = 40) {
       if (code.startsWith(normalized)) score += 80;
       if (city.startsWith(normalized)) score += 70;
       if (name.startsWith(normalized)) score += 58;
-      if (city.includes(normalized) || name.includes(normalized)) score += 38;
+      if (!isShortCodeLikeQuery && (city.includes(normalized) || name.includes(normalized))) score += 38;
       return { station, score };
     })
     .filter((item) => item.score > 0)
