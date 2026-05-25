@@ -1068,6 +1068,15 @@ function StationCodeLookup() {
   const normalized = code.trim().toUpperCase();
   const station = normalized ? stationByCode(normalized) : null;
   const stationLookupState = station ? stationState(station.code) : null;
+  const quickDate = todayIso();
+  const quickRoutes = station
+    ? [
+      { label: `${station.code} → New Delhi`, href: `/trains?source=${station.code}&destination=NDLS&date=${quickDate}&classType=3A` },
+      { label: `Patna → ${station.code}`, href: `/trains?source=PNBE&destination=${station.code}&date=${quickDate}&classType=3A` },
+      { label: `${station.code} → Mumbai`, href: `/trains?source=${station.code}&destination=CSMT&date=${quickDate}&classType=3A` },
+    ]
+    : [];
+  const stationSuggestions = !station && normalized.length >= 2 ? stationMatches(normalized, 3) : [];
 
   return (
     <div className={softPanel("mt-8 rounded-[30px] p-5")}>
@@ -1089,9 +1098,38 @@ function StationCodeLookup() {
               <>
                 <div className="text-lg font-black">{fullStationLabelFromCode(station.code)}</div>
                 <div className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">State: {stationLookupState === "India" ? "Unavailable" : stationLookupState} · Code: {station.code}</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link href={`/trains?source=${station.code}&destination=NDLS&date=${quickDate}&classType=3A`} className="rounded-full bg-cyan-100 px-3 py-2 text-xs font-black text-cyan-800 transition hover:bg-cyan-200 dark:bg-cyan-300/12 dark:text-cyan-100">
+                    Search from {station.code}
+                  </Link>
+                  <Link href={`/trains?source=PNBE&destination=${station.code}&date=${quickDate}&classType=3A`} className="rounded-full bg-slate-200 px-3 py-2 text-xs font-black text-slate-800 transition hover:bg-slate-300 dark:bg-white/10 dark:text-slate-100">
+                    Search to {station.code}
+                  </Link>
+                  <Link href="/live" className="rounded-full bg-emerald-100 px-3 py-2 text-xs font-black text-emerald-800 transition hover:bg-emerald-200 dark:bg-emerald-300/12 dark:text-emerald-100">
+                    Live tools
+                  </Link>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {quickRoutes.map((route) => (
+                    <Link key={route.href} href={route.href} className="rounded-2xl border border-slate-200 bg-white p-3 text-xs font-black text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-200">
+                      {route.label}
+                    </Link>
+                  ))}
+                </div>
               </>
             ) : normalized ? (
-              <div className="font-bold text-rose-600 dark:text-rose-200">No station found for {normalized}</div>
+              <>
+                <div className="font-bold text-rose-600 dark:text-rose-200">No station found for {normalized}</div>
+                {stationSuggestions.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {stationSuggestions.map((item) => (
+                      <button key={item.code} type="button" onClick={() => setCode(item.code)} className="rounded-full bg-slate-200 px-3 py-2 text-xs font-black text-slate-800 transition hover:bg-cyan-100 dark:bg-white/10 dark:text-slate-100">
+                        {stationLabel(item)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
             ) : (
               <div className="font-bold text-slate-500 dark:text-slate-400">Station details will appear here.</div>
             )}
@@ -1331,6 +1369,17 @@ function RouteDetailsModal({ train, onClose }: { train: any; onClose: () => void
   const resolvedTrain = state.train || train;
   const firstStop = route[0] || {};
   const lastStop = route[route.length - 1] || {};
+  const journeySource = String(train.source || resolvedTrain.source || firstStop.code || "").toUpperCase();
+  const journeyDestination = String(train.destination || resolvedTrain.destination || lastStop.code || "").toUpperCase();
+  const sourceIndex = route.findIndex((stop: any) => String(stop.code || "").toUpperCase() === journeySource);
+  const destinationIndex = route.findIndex((stop: any) => String(stop.code || "").toUpperCase() === journeyDestination);
+  const hasJourneySegment = sourceIndex >= 0 && destinationIndex >= 0 && sourceIndex <= destinationIndex;
+  const boardStop = hasJourneySegment ? route[sourceIndex] : { code: journeySource, departure: train.departureTime || "--:--" };
+  const alightStop = hasJourneySegment ? route[destinationIndex] : { code: journeyDestination, arrival: train.arrivalTime || "--:--" };
+  const boardTime = boardStop.departure && boardStop.departure !== "--" ? boardStop.departure : train.departureTime || "--:--";
+  const alightTime = alightStop.arrival && alightStop.arrival !== "--" ? alightStop.arrival : train.arrivalTime || "--:--";
+  const segmentStops = hasJourneySegment ? destinationIndex - sourceIndex + 1 : 2;
+  const segmentDistance = hasJourneySegment ? Math.max(0, Number(alightStop.distance || 0) - Number(boardStop.distance || 0)) : 0;
   const firstDeparture = firstStop.departure && firstStop.departure !== "--:--" ? firstStop.departure : train.departureTime || "--:--";
   const lastArrival = lastStop.arrival && lastStop.arrival !== "--:--" ? lastStop.arrival : train.arrivalTime || "--:--";
   const distance = Number(lastStop.distance || 0);
@@ -1372,11 +1421,12 @@ function RouteDetailsModal({ train, onClose }: { train: any; onClose: () => void
               <X className="h-5 w-5" />
             </button>
           </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
             {[
-              ["Route window", `${firstDeparture} → ${lastArrival}`],
-              ["Stops", `${route.length}`],
-              ["Distance", distance ? `${distance} km` : "Distance on schedule"],
+              ["Your ride", `${boardTime} → ${alightTime}`],
+              ["Full train", `${firstDeparture} → ${lastArrival}`],
+              ["Your stops", `${segmentStops}`],
+              ["Full distance", distance ? `${distance} km` : "Distance on schedule"],
               ["Seats", liveSeatText(train)],
               ["Rate", liveFareText(train)],
             ].map(([label, value]) => (
@@ -1390,6 +1440,30 @@ function RouteDetailsModal({ train, onClose }: { train: any; onClose: () => void
         </div>
 
         <div className="max-h-[62vh] overflow-y-auto p-4 sm:p-5">
+          <div className="mb-4 rounded-[28px] border border-cyan-300/40 bg-cyan-50 p-4 dark:border-cyan-300/20 dark:bg-cyan-300/10">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-black uppercase text-cyan-800 dark:text-cyan-100">Your searched journey section</div>
+                <h3 className="mt-2 text-2xl font-black">
+                  {stationLabelFromCode(journeySource)} → {stationLabelFromCode(journeyDestination)}
+                </h3>
+                <p className="mt-1 text-sm font-bold text-slate-600 dark:text-slate-300">
+                  Board at {stationLabelFromCode(journeySource)} around {boardTime}. Alight at {stationLabelFromCode(journeyDestination)} around {alightTime}.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+                <div className="rounded-2xl bg-white/80 p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Board stop</div><div className="font-black">{sourceIndex >= 0 ? sourceIndex + 1 : "--"}</div></div>
+                <div className="rounded-2xl bg-white/80 p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Alight stop</div><div className="font-black">{destinationIndex >= 0 ? destinationIndex + 1 : "--"}</div></div>
+                <div className="rounded-2xl bg-white/80 p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Your stops</div><div className="font-black">{segmentStops}</div></div>
+                <div className="rounded-2xl bg-white/80 p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Section km</div><div className="font-black">{segmentDistance ? `${segmentDistance} km` : "--"}</div></div>
+              </div>
+            </div>
+            {!hasJourneySegment && (
+              <div className="mt-3 rounded-2xl border border-amber-300/50 bg-amber-50 p-3 text-xs font-bold text-amber-800 dark:bg-amber-300/10 dark:text-amber-100">
+                This train result uses your searched station pair, but the provider route did not expose both station codes in the full timetable. Verify the exact boarding/alighting stop on IRCTC before booking.
+              </div>
+            )}
+          </div>
           <div className="mb-4 grid gap-3 md:grid-cols-3">
             <div className="rounded-3xl bg-emerald-50 p-4 dark:bg-emerald-300/10">
               <div className="text-[11px] font-black uppercase text-emerald-700 dark:text-emerald-100">Starts</div>
@@ -1409,36 +1483,46 @@ function RouteDetailsModal({ train, onClose }: { train: any; onClose: () => void
           </div>
 
           <div className="space-y-3">
-            {route.map((stop: any, index: number) => (
-              <div key={`${stop.code || "stop"}-${index}`} className="grid grid-cols-[auto_1fr] gap-3">
-                <div className="flex flex-col items-center">
-                  <span className={`mt-3 flex h-9 w-9 items-center justify-center rounded-full border ${index === 0 ? "border-emerald-400 bg-emerald-100 text-emerald-700 dark:bg-emerald-400/12 dark:text-emerald-100" : index === route.length - 1 ? "border-rose-400 bg-rose-100 text-rose-700 dark:bg-rose-400/12 dark:text-rose-100" : "border-cyan-400 bg-cyan-100 text-cyan-700 dark:bg-cyan-400/12 dark:text-cyan-100"}`}>
-                    <Circle className="h-2.5 w-2.5 fill-current" />
-                  </span>
-                  {index < route.length - 1 && <span className="h-full min-h-16 w-px bg-slate-200 dark:bg-white/12" />}
-                </div>
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/6">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-lg font-black">{stop.stationName || stationLabelFromCode(stop.code, false)}</span>
-                        <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-black text-slate-700 dark:bg-black/20 dark:text-slate-200">{stop.code || "--"}</span>
-                        {index === 0 && <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-black uppercase text-emerald-700 dark:bg-emerald-300/12 dark:text-emerald-100">source</span>}
-                        {index === route.length - 1 && <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-black uppercase text-rose-700 dark:bg-rose-300/12 dark:text-rose-100">destination</span>}
+            {route.map((stop: any, index: number) => {
+              const code = String(stop.code || "").toUpperCase();
+              const isBoard = hasJourneySegment && code === journeySource;
+              const isAlight = hasJourneySegment && code === journeyDestination;
+              const isInsideSegment = hasJourneySegment && index >= sourceIndex && index <= destinationIndex;
+              const isOutsideSegment = hasJourneySegment && !isInsideSegment;
+              return (
+                <div key={`${stop.code || "stop"}-${index}`} className={`grid grid-cols-[auto_1fr] gap-3 ${isOutsideSegment ? "opacity-45" : ""}`}>
+                  <div className="flex flex-col items-center">
+                    <span className={`mt-3 flex h-9 w-9 items-center justify-center rounded-full border ${isBoard ? "border-emerald-400 bg-emerald-100 text-emerald-700 ring-4 ring-emerald-300/20 dark:bg-emerald-400/12 dark:text-emerald-100" : isAlight ? "border-rose-400 bg-rose-100 text-rose-700 ring-4 ring-rose-300/20 dark:bg-rose-400/12 dark:text-rose-100" : index === 0 ? "border-slate-300 bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-200" : index === route.length - 1 ? "border-slate-300 bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-200" : isInsideSegment ? "border-cyan-400 bg-cyan-100 text-cyan-700 dark:bg-cyan-400/12 dark:text-cyan-100" : "border-slate-300 bg-slate-100 text-slate-500 dark:bg-white/8 dark:text-slate-300"}`}>
+                      <Circle className="h-2.5 w-2.5 fill-current" />
+                    </span>
+                    {index < route.length - 1 && <span className={`h-full min-h-16 w-px ${isInsideSegment ? "bg-cyan-300 dark:bg-cyan-300/30" : "bg-slate-200 dark:bg-white/12"}`} />}
+                  </div>
+                  <div className={`rounded-3xl border p-4 ${isBoard ? "border-emerald-300 bg-emerald-50 dark:border-emerald-300/25 dark:bg-emerald-300/10" : isAlight ? "border-rose-300 bg-rose-50 dark:border-rose-300/25 dark:bg-rose-300/10" : isInsideSegment ? "border-cyan-200 bg-cyan-50/60 dark:border-cyan-300/20 dark:bg-cyan-300/8" : "border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/6"}`}>
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-lg font-black">{stop.stationName || stationLabelFromCode(stop.code, false)}</span>
+                          <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-black text-slate-700 dark:bg-black/20 dark:text-slate-200">{stop.code || "--"}</span>
+                          {isBoard && <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-black uppercase text-emerald-700 dark:bg-emerald-300/12 dark:text-emerald-100">board here</span>}
+                          {isAlight && <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-black uppercase text-rose-700 dark:bg-rose-300/12 dark:text-rose-100">alight here</span>}
+                          {!isBoard && !isAlight && isInsideSegment && <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-[10px] font-black uppercase text-cyan-700 dark:bg-cyan-300/12 dark:text-cyan-100">your section</span>}
+                          {index === 0 && !isBoard && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600 dark:bg-white/10 dark:text-slate-200">train origin</span>}
+                          {index === route.length - 1 && !isAlight && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600 dark:bg-white/10 dark:text-slate-200">train terminal</span>}
+                        </div>
+                        <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
+                          {stop.state || stationState(stop.code) || "State TBA"} · Platform {stop.platform || "TBA"} · Day {stop.day || 1} · {stop.distance ?? "--"} km
+                        </div>
                       </div>
-                      <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
-                        {stop.state || stationState(stop.code) || "State TBA"} · Platform {stop.platform || "TBA"} · Day {stop.day || 1} · {stop.distance ?? "--"} km
+                      <div className="grid grid-cols-3 gap-2 text-sm sm:min-w-72">
+                        <div className="rounded-2xl bg-white p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Arr</div><div className="font-black">{stop.arrival || "--"}</div></div>
+                        <div className="rounded-2xl bg-white p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Dep</div><div className="font-black">{stop.departure || "--"}</div></div>
+                        <div className="rounded-2xl bg-white p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Halt</div><div className="font-black">{stop.halt || "--"}</div></div>
                       </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 text-sm sm:min-w-72">
-                      <div className="rounded-2xl bg-white p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Arr</div><div className="font-black">{stop.arrival || "--"}</div></div>
-                      <div className="rounded-2xl bg-white p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Dep</div><div className="font-black">{stop.departure || "--"}</div></div>
-                      <div className="rounded-2xl bg-white p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Halt</div><div className="font-black">{stop.halt || "--"}</div></div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
