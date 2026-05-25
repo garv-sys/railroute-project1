@@ -165,18 +165,6 @@ function availabilityTone(value: unknown) {
   return "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-slate-200";
 }
 
-function trainRouteHref(trainNo: unknown) {
-  return `/route?query=${encodeURIComponent(String(trainNo || ""))}`;
-}
-
-function routeLinkProps(trainNo: unknown) {
-  return {
-    href: trainRouteHref(trainNo),
-    target: "_blank",
-    rel: "noreferrer",
-  };
-}
-
 function formatFare(value: unknown) {
   const text = String(value || "").trim();
   if (!text || text === "₹--") return "₹--";
@@ -881,6 +869,7 @@ function TrainSearchPanel({ compact = false }: { compact?: boolean }) {
 
 function FullTrainDetails({ train }: { train: any }) {
   const route = train.route || [];
+  const [routeOpen, setRouteOpen] = useState(false);
   return (
     <article className="overflow-hidden rounded-[28px] border border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-black/20">
       <div className="grid gap-4 p-5 md:grid-cols-[1fr_auto] md:items-start">
@@ -897,9 +886,9 @@ function FullTrainDetails({ train }: { train: any }) {
           <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold dark:border-white/10 dark:bg-white/8">
             Complete route · {route.length} stops
           </div>
-          <Link {...routeLinkProps(train.trainNo)} className="flex items-center justify-center rounded-2xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm font-black text-cyan-800 transition hover:bg-cyan-100 dark:bg-cyan-300/12 dark:text-cyan-100">
+          <button type="button" onClick={() => setRouteOpen(true)} className="flex items-center justify-center rounded-2xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm font-black text-cyan-800 transition hover:bg-cyan-100 dark:bg-cyan-300/12 dark:text-cyan-100">
             Check this route
-          </Link>
+          </button>
           <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 transition hover:border-slate-300 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">
             Verify on IRCTC
           </a>
@@ -932,6 +921,9 @@ function FullTrainDetails({ train }: { train: any }) {
           ))}
         </div>
       </div>
+      <AnimatePresence>
+        {routeOpen && <RouteDetailsModal train={train} onClose={() => setRouteOpen(false)} />}
+      </AnimatePresence>
     </article>
   );
 }
@@ -1164,6 +1156,7 @@ function CoachPositionStrip({ train, activeCoach }: { train: any; activeCoach?: 
 function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode: string) => void }) {
   const classes = train.classes || ["SL", "3A", "2A", "1A"];
   const [routeOpen, setRouteOpen] = useState(false);
+  const [fullRouteOpen, setFullRouteOpen] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
   return (
     <article className={softPanel("overflow-hidden rounded-[30px]")}>
@@ -1189,9 +1182,9 @@ function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode:
             <button type="button" onClick={() => setRouteOpen((value) => !value)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 transition hover:border-cyan-400 hover:text-cyan-700 dark:border-white/10 dark:bg-white/6 dark:text-slate-200">
               {routeOpen ? "Hide route" : `View route · ${train.departureTime || "--"} to ${train.arrivalTime || "--"}`}
             </button>
-            <Link {...routeLinkProps(train.trainNo)} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">
+            <button type="button" onClick={() => setFullRouteOpen(true)} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">
               Open full route
-            </Link>
+            </button>
             <button type="button" onClick={() => setCoachOpen((value) => !value)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 transition hover:border-cyan-400 hover:text-cyan-700 dark:border-white/10 dark:bg-white/6 dark:text-slate-200">
               {coachOpen ? "Hide coach position" : "Coach position"}
             </button>
@@ -1222,12 +1215,15 @@ function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode:
           <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="mt-4 flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
             Book / check ticket on IRCTC
           </a>
-          <Link {...routeLinkProps(train.trainNo)} className="mt-3 flex items-center justify-center rounded-2xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm font-black text-cyan-800 transition hover:bg-cyan-100 dark:bg-cyan-300/12 dark:text-cyan-100">
+          <button type="button" onClick={() => setFullRouteOpen(true)} className="mt-3 flex w-full items-center justify-center rounded-2xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm font-black text-cyan-800 transition hover:bg-cyan-100 dark:bg-cyan-300/12 dark:text-cyan-100">
             Check full route
-          </Link>
+          </button>
           <div className="mt-4 text-xs font-semibold leading-5 text-slate-500">Click any class chip for class-specific availability, berth layout, coach options and confirmation check.</div>
         </div>
       </div>
+      <AnimatePresence>
+        {fullRouteOpen && <RouteDetailsModal train={train} onClose={() => setFullRouteOpen(false)} />}
+      </AnimatePresence>
     </article>
   );
 }
@@ -1274,6 +1270,184 @@ function InlineRoutePanel({ trainNo, train }: { trainNo: string; train: any }) {
         ))}
       </div>
     </div>
+  );
+}
+
+function RouteDetailsModal({ train, onClose }: { train: any; onClose: () => void }) {
+  const [state, setState] = useState<{ loading: boolean; route: any[]; train: any | null; error: string }>({
+    loading: true,
+    route: train.route || [],
+    train: null,
+    error: "",
+  });
+
+  useEffect(() => {
+    let mounted = true;
+    const trainNo = String(train.trainNo || "").trim();
+    if (!trainNo) {
+      setState({ loading: false, route: train.route || [], train: null, error: "Train number unavailable for live route lookup." });
+      return;
+    }
+
+    setState((current) => ({ ...current, loading: true, error: "" }));
+    postJson<any>("/api/train-search", { query: trainNo })
+      .then((data) => {
+        if (!mounted) return;
+        const liveTrain = data.trains?.[0] || null;
+        setState({
+          loading: false,
+          route: liveTrain?.route?.length ? liveTrain.route : train.route || [],
+          train: liveTrain,
+          error: "",
+        });
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        setState({
+          loading: false,
+          route: train.route || [],
+          train: null,
+          error: error instanceof Error ? error.message : "Live route lookup failed.",
+        });
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [train]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  const route = state.route.length ? state.route : [
+    { code: train.source, departure: train.departureTime || "--:--", arrival: "Start", halt: "-" },
+    { code: train.destination, arrival: train.arrivalTime || "--:--", departure: "End", halt: "-" },
+  ];
+  const resolvedTrain = state.train || train;
+  const firstStop = route[0] || {};
+  const lastStop = route[route.length - 1] || {};
+  const firstDeparture = firstStop.departure && firstStop.departure !== "--:--" ? firstStop.departure : train.departureTime || "--:--";
+  const lastArrival = lastStop.arrival && lastStop.arrival !== "--:--" ? lastStop.arrival : train.arrivalTime || "--:--";
+  const distance = Number(lastStop.distance || 0);
+  const runningDays = Array.isArray(resolvedTrain.runningDays) ? resolvedTrain.runningDays.join(" · ") : resolvedTrain.runningDays || "Check schedule";
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/70 p-0 backdrop-blur-md sm:items-center sm:p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Full train route"
+      onMouseDown={onClose}
+    >
+      <motion.div
+        className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-t-[30px] border border-white/10 bg-white shadow-2xl dark:bg-[#101725] sm:rounded-[34px]"
+        initial={{ y: 32, scale: 0.98 }}
+        animate={{ y: 0, scale: 1 }}
+        exit={{ y: 24, scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 260, damping: 28 }}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/92 p-4 backdrop-blur-xl dark:border-white/10 dark:bg-[#101725]/92 sm:p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-black uppercase text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">IRCTC-compatible full route</span>
+                <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">{runningDays}</span>
+                {state.loading && <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black text-slate-600 dark:bg-white/10 dark:text-slate-200"><Loader2 className="h-3 w-3 animate-spin" /> Syncing</span>}
+              </div>
+              <h2 className="mt-3 text-2xl font-black tracking-tight sm:text-4xl">{trainNumberName(resolvedTrain, "Indian Railways Train")}</h2>
+              <p className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">
+                {stationLabelFromCode(resolvedTrain.source || firstStop.code)} to {stationLabelFromCode(resolvedTrain.destination || lastStop.code)}
+              </p>
+            </div>
+            <button type="button" onClick={onClose} aria-label="Close route view" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-700 transition hover:border-rose-300 hover:text-rose-600 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            {[
+              ["Route window", `${firstDeparture} → ${lastArrival}`],
+              ["Stops", `${route.length}`],
+              ["Distance", distance ? `${distance} km` : "Distance on schedule"],
+              ["Seats", liveSeatText(train)],
+              ["Rate", liveFareText(train)],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/6">
+                <div className="text-[10px] font-black uppercase text-slate-400">{label}</div>
+                <div className="mt-1 text-sm font-black text-slate-900 dark:text-white">{value}</div>
+              </div>
+            ))}
+          </div>
+          {state.error && <div className="mt-3 rounded-2xl border border-amber-300/50 bg-amber-50 p-3 text-xs font-bold text-amber-800 dark:bg-amber-300/10 dark:text-amber-100">{state.error} Showing cached RailRoute route data.</div>}
+        </div>
+
+        <div className="max-h-[62vh] overflow-y-auto p-4 sm:p-5">
+          <div className="mb-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-3xl bg-emerald-50 p-4 dark:bg-emerald-300/10">
+              <div className="text-[11px] font-black uppercase text-emerald-700 dark:text-emerald-100">Starts</div>
+              <div className="mt-1 text-lg font-black">{stationLabelFromCode(firstStop.code || resolvedTrain.source)}</div>
+              <div className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-300">Dep {firstDeparture}</div>
+            </div>
+            <div className="rounded-3xl bg-cyan-50 p-4 dark:bg-cyan-300/10">
+              <div className="text-[11px] font-black uppercase text-cyan-700 dark:text-cyan-100">Train intelligence</div>
+              <div className="mt-1 text-lg font-black">{resolvedTrain.dataSource || "Live schedule lookup"}</div>
+              <div className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-300">Platforms can change; verify before boarding.</div>
+            </div>
+            <div className="rounded-3xl bg-rose-50 p-4 dark:bg-rose-300/10">
+              <div className="text-[11px] font-black uppercase text-rose-700 dark:text-rose-100">Ends</div>
+              <div className="mt-1 text-lg font-black">{stationLabelFromCode(lastStop.code || resolvedTrain.destination)}</div>
+              <div className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-300">Arr {lastArrival}</div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {route.map((stop: any, index: number) => (
+              <div key={`${stop.code || "stop"}-${index}`} className="grid grid-cols-[auto_1fr] gap-3">
+                <div className="flex flex-col items-center">
+                  <span className={`mt-3 flex h-9 w-9 items-center justify-center rounded-full border ${index === 0 ? "border-emerald-400 bg-emerald-100 text-emerald-700 dark:bg-emerald-400/12 dark:text-emerald-100" : index === route.length - 1 ? "border-rose-400 bg-rose-100 text-rose-700 dark:bg-rose-400/12 dark:text-rose-100" : "border-cyan-400 bg-cyan-100 text-cyan-700 dark:bg-cyan-400/12 dark:text-cyan-100"}`}>
+                    <Circle className="h-2.5 w-2.5 fill-current" />
+                  </span>
+                  {index < route.length - 1 && <span className="h-full min-h-16 w-px bg-slate-200 dark:bg-white/12" />}
+                </div>
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/6">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-lg font-black">{stop.stationName || stationLabelFromCode(stop.code, false)}</span>
+                        <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-black text-slate-700 dark:bg-black/20 dark:text-slate-200">{stop.code || "--"}</span>
+                        {index === 0 && <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-black uppercase text-emerald-700 dark:bg-emerald-300/12 dark:text-emerald-100">source</span>}
+                        {index === route.length - 1 && <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-black uppercase text-rose-700 dark:bg-rose-300/12 dark:text-rose-100">destination</span>}
+                      </div>
+                      <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
+                        {stop.state || stationState(stop.code) || "State TBA"} · Platform {stop.platform || "TBA"} · Day {stop.day || 1} · {stop.distance ?? "--"} km
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-sm sm:min-w-72">
+                      <div className="rounded-2xl bg-white p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Arr</div><div className="font-black">{stop.arrival || "--"}</div></div>
+                      <div className="rounded-2xl bg-white p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Dep</div><div className="font-black">{stop.departure || "--"}</div></div>
+                      <div className="rounded-2xl bg-white p-3 dark:bg-black/20"><div className="text-[10px] font-black uppercase text-slate-400">Halt</div><div className="font-black">{stop.halt || "--"}</div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="sticky bottom-0 flex flex-col gap-2 border-t border-slate-200 bg-white/92 p-4 backdrop-blur-xl dark:border-white/10 dark:bg-[#101725]/92 sm:flex-row sm:items-center sm:justify-end">
+          <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-3 text-sm font-black text-slate-800 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">Close</button>
+          <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="rounded-2xl bg-slate-950 px-5 py-3 text-center text-sm font-black text-white dark:bg-white dark:text-slate-950">Verify / book on IRCTC</a>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -1352,6 +1526,7 @@ function ClassDetailModal({ train, classCode, journeyDate, onClose }: { train: a
 function SplitJourneyCard({ split }: { split: any }) {
   const leg1 = split.leg1 || {};
   const leg2 = split.leg2 || {};
+  const [routeTrain, setRouteTrain] = useState<any | null>(null);
   const leg1Fare = split.leg1Fare || leg1.fare || "₹--";
   const leg2Fare = split.leg2Fare || leg2.fare || "₹--";
   const totalDuration = splitTotalDuration(split);
@@ -1396,7 +1571,7 @@ function SplitJourneyCard({ split }: { split: any }) {
             <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${availabilityTone(leg1.availability)}`}>{readableRailStatus(leg1.availability) || "Check seats"}</span>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Link {...routeLinkProps(leg1.trainNo)} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-1.5 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">Route</Link>
+            <button type="button" onClick={() => setRouteTrain(leg1)} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-1.5 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">Route</button>
             <Link href={`/coach?class=${encodeURIComponent(leg1.classType || "3A")}`} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-black text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-200">Coach layout</Link>
           </div>
         </div>
@@ -1425,7 +1600,7 @@ function SplitJourneyCard({ split }: { split: any }) {
             <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${availabilityTone(leg2.availability)}`}>{readableRailStatus(leg2.availability) || "Check seats"}</span>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Link {...routeLinkProps(leg2.trainNo)} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-1.5 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">Route</Link>
+            <button type="button" onClick={() => setRouteTrain(leg2)} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-1.5 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">Route</button>
             <Link href={`/coach?class=${encodeURIComponent(leg2.classType || "3A")}`} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-black text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-200">Coach layout</Link>
           </div>
         </div>
@@ -1434,6 +1609,9 @@ function SplitJourneyCard({ split }: { split: any }) {
         <CoachPositionStrip train={leg1} />
         <CoachPositionStrip train={leg2} />
       </div>
+      <AnimatePresence>
+        {routeTrain && <RouteDetailsModal train={routeTrain} onClose={() => setRouteTrain(null)} />}
+      </AnimatePresence>
     </article>
   );
 }
