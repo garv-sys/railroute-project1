@@ -114,6 +114,12 @@ function trainRouteHref(trainNo: unknown) {
   return `/route?query=${encodeURIComponent(String(trainNo || ""))}`;
 }
 
+function formatFare(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text || text === "₹--") return "₹--";
+  return text.startsWith("₹") ? text : `₹${text}`;
+}
+
 function compatibleCoaches(classType: string) {
   if (classType === "1A") return ["H1", "H2", "HA1"];
   if (classType === "2A") return ["A1", "A2", "HA1"];
@@ -1133,14 +1139,20 @@ function SplitJourneyCard({ split }: { split: any }) {
         </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">Journey 1 rate: {String(leg1Fare).startsWith("₹") ? leg1Fare : `₹${leg1Fare}`}</span>
-        <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">Journey 2 rate: {String(leg2Fare).startsWith("₹") ? leg2Fare : `₹${leg2Fare}`}</span>
+        <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">Journey 1 rate: {formatFare(leg1Fare)}</span>
+        <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">Journey 2 rate: {formatFare(leg2Fare)}</span>
         <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white dark:bg-white dark:text-slate-950">Connect to IRCTC</a>
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
-          <div className="text-sm text-slate-500">Split journey 1</div>
-          <b>{leg1.trainName || "Leg 1"}</b>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm text-slate-500">Split journey 1</div>
+              <h4 className="mt-1 text-lg font-black">{leg1.trainName || "Leg 1 train"}</h4>
+              <div className="mt-1 text-xs font-black text-slate-400">#{leg1.trainNo || "--"}</div>
+            </div>
+            <span className="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">{formatFare(leg1Fare)}</span>
+          </div>
           <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-black dark:bg-black/20">
             {stationLabelFromCode(leg1.source || "PNBE", false)} {leg1.departureTime || "--:--"} → {stationLabelFromCode(leg1.destination || split.hubStation || "CNB", false)} {leg1.arrivalTime || "--:--"}
           </div>
@@ -1154,8 +1166,14 @@ function SplitJourneyCard({ split }: { split: any }) {
           <div className="mt-3 text-xs font-black text-violet-700 dark:text-violet-100">Layover window: {leg1.arrivalTime || "--:--"} to {leg2.departureTime || "--:--"}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
-          <div className="text-sm text-slate-500">Split journey 2</div>
-          <b>{leg2.trainName || "Leg 2"}</b>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm text-slate-500">Split journey 2</div>
+              <h4 className="mt-1 text-lg font-black">{leg2.trainName || "Leg 2 train"}</h4>
+              <div className="mt-1 text-xs font-black text-slate-400">#{leg2.trainNo || "--"}</div>
+            </div>
+            <span className="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">{formatFare(leg2Fare)}</span>
+          </div>
           <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-black dark:bg-black/20">
             {stationLabelFromCode(leg2.source || split.hubStation || "CNB", false)} {leg2.departureTime || "--:--"} → {stationLabelFromCode(leg2.destination || "SBC", false)} {leg2.arrivalTime || "--:--"}
           </div>
