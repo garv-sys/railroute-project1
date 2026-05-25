@@ -243,13 +243,13 @@ export function buildCoachSeats(classType: string, coach = "B1") {
     let berth = `${number}${number % 2 ? "W" : "A"}`;
     let cabin = "";
     if (!isChair && normalizedClass === "1A") {
-      const cabinIndex = Math.floor(index / 4);
-      cabin = cabinIndex % 3 === 1 ? `Coupe ${String.fromCharCode(65 + cabinIndex)}` : `Cabin ${String.fromCharCode(65 + cabinIndex)}`;
+      const cabinIndex = index < 12 ? Math.floor(index / 4) : 3 + Math.floor((index - 12) / 2);
+      cabin = index < 12 ? `Cabin ${String.fromCharCode(65 + cabinIndex)}` : `Coupe ${String.fromCharCode(65 + cabinIndex)}`;
       berth = index % 2 === 0 ? "LB" : "UB";
     } else if (!isChair && normalizedClass === "2A") {
-      berth = ["LB", "UB", "SL", "SU"][index % 4];
+      berth = ["LB", "UB", "LB", "UB", "SL", "SU"][index % 6];
     } else if (!isChair) {
-      berth = ["LB", "MB", "UB", "SL", "SU"][index % 5];
+      berth = ["LB", "MB", "UB", "LB", "MB", "UB", "SL", "SU"][index % 8];
     }
     return {
       id: `${coach}-${number}`,

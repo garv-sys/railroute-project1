@@ -14,7 +14,6 @@ import {
   IndianRupee,
   Loader2,
   MapPin,
-  Navigation,
   Radio,
   Route,
   Search,
@@ -43,14 +42,12 @@ const toolNav: { href: string; label: string; tool: ToolKind }[] = [
   { href: "/trains", label: "Trains", tool: "trains" },
   { href: "/live", label: "Live", tool: "live" },
   { href: "/pnr", label: "PNR", tool: "pnr" },
-  { href: "/fare", label: "Fare", tool: "fare" },
-  { href: "/map", label: "Map", tool: "map" },
   { href: "/route", label: "Route", tool: "route" },
   { href: "/coach", label: "Coach", tool: "coach" },
 ];
 
 const classOptions = ["SL", "3E", "3A", "2A", "1A", "CC", "EC"];
-const coachTabs = ["B1", "B2", "B3", "A1", "A2", "S1", "S2", "S3", "HA1", "CC1", "EC1"];
+const IRCTC_TRAIN_SEARCH_URL = "https://www.irctc.co.in/nget/train-search";
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
@@ -84,6 +81,54 @@ function readableRailStatus(value: unknown) {
   if (!text) return "";
   if (/live fetch failed/i.test(text)) return "Live quota unavailable";
   return text;
+}
+
+function ticketDecision(value: unknown) {
+  const status = readableRailStatus(value).toUpperCase();
+  if (/UNAVAILABLE|NOT RUNNING|REGRET/.test(status)) {
+    return { label: "Check on IRCTC", tone: "bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200" };
+  }
+  if (/\bAVAILABLE\b|\bAVL\b|CNF|CONFIRM/.test(status)) {
+    return { label: "Likely confirmed", tone: "bg-emerald-100 text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100" };
+  }
+  if (/RAC/.test(status)) {
+    return { label: "RAC, not fully confirmed", tone: "bg-amber-100 text-amber-800 dark:bg-amber-300/12 dark:text-amber-100" };
+  }
+  if (/WL|WAIT|REGRET|UNAVAILABLE/.test(status)) {
+    return { label: "Not confirmed yet", tone: "bg-rose-100 text-rose-800 dark:bg-rose-300/12 dark:text-rose-100" };
+  }
+  return { label: "Check on IRCTC", tone: "bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200" };
+}
+
+function compatibleCoaches(classType: string) {
+  if (classType === "1A") return ["H1", "H2", "HA1"];
+  if (classType === "2A") return ["A1", "A2", "HA1"];
+  if (classType === "SL") return ["S1", "S2", "S3", "S4"];
+  if (classType === "CC") return ["CC1", "CC2"];
+  if (classType === "EC") return ["EC1", "EC2"];
+  return ["B1", "B2", "B3", "B4"];
+}
+
+function defaultCoachFor(classType: string) {
+  return compatibleCoaches(classType)[0];
+}
+
+function groupSeatsForClass(classType: string, seats: ReturnType<typeof buildCoachSeats>) {
+  if (classType === "1A") {
+    const groups: { label: string; seats: typeof seats }[] = [];
+    seats.forEach((seat) => {
+      const label = seat.cabin || "Cabin";
+      const existing = groups.find((group) => group.label === label);
+      if (existing) existing.seats.push(seat);
+      else groups.push({ label, seats: [seat] });
+    });
+    return groups;
+  }
+  const size = classType === "2A" ? 6 : ["CC", "EC"].includes(classType) ? 4 : 8;
+  return Array.from({ length: Math.ceil(seats.length / size) }, (_, index) => ({
+    label: ["CC", "EC"].includes(classType) ? `Row ${index + 1}` : `Bay ${index + 1}`,
+    seats: seats.slice(index * size, index * size + size),
+  }));
 }
 
 function ProductShell({ children, active }: { children: React.ReactNode; active?: ToolKind }) {
@@ -448,7 +493,7 @@ export function RailRouteHomePage() {
                 ["Search Trains", "/trains", Search],
                 ["Live Tracking", "/live", Radio],
                 ["PNR Status", "/pnr", ShieldCheck],
-                ["Explore Map", "/map", Navigation],
+                ["Coach Layouts", "/coach", Train],
               ].map(([label, href, Icon], index) => {
                 const I = Icon as typeof Search;
                 return (
@@ -491,7 +536,6 @@ export function RailRouteHomePage() {
             ["Route Explorer", Route],
             ["Coach Explorer", Train],
             ["Seat Intelligence", WalletCards],
-            ["Fare Insights", IndianRupee],
             ["Platform Change Intelligence", Compass],
             ["Split Journey Planner", ArrowDownUp],
           ].map(([title, Icon]) => {
@@ -843,10 +887,13 @@ function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode:
           {routeOpen && <InlineRoutePanel trainNo={train.trainNo} train={train} />}
         </div>
         <div className="rounded-3xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/8">
-          <div className="text-[11px] font-black uppercase text-slate-400">Fare preview</div>
-          <div className="mt-1 text-3xl font-black">{train.fare || "Check fare"}</div>
+          <div className="text-[11px] font-black uppercase text-slate-400">Ticket status</div>
+          <div className={`mt-2 rounded-2xl p-3 text-xl font-black ${ticketDecision(train.availability).tone}`}>{ticketDecision(train.availability).label}</div>
           <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm font-black text-slate-600 dark:bg-black/20 dark:text-slate-300">{readableRailStatus(train.availability) || "Seat intelligence ready"}</div>
-          <div className="mt-4 text-xs font-semibold leading-5 text-slate-500">Click any class chip for fare, availability, berth layout, coach options and quota-ready details.</div>
+          <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="mt-4 flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
+            Book / check ticket on IRCTC
+          </a>
+          <div className="mt-4 text-xs font-semibold leading-5 text-slate-500">Click any class chip for class-specific availability, berth layout, coach options and confirmation check.</div>
         </div>
       </div>
     </article>
@@ -900,6 +947,7 @@ function InlineRoutePanel({ trainNo, train }: { trainNo: string; train: any }) {
 
 function ClassDetailModal({ train, classCode, journeyDate, onClose }: { train: any; classCode: string; journeyDate: string; onClose: () => void }) {
   const [classState, setClassState] = useState<{ loading: boolean; error: string; fare: string; availability: string }>({ loading: true, error: "", fare: "", availability: "" });
+  const decision = ticketDecision(classState.availability);
 
   useEffect(() => {
     let mounted = true;
@@ -948,6 +996,12 @@ function ClassDetailModal({ train, classCode, journeyDate, onClose }: { train: a
             ].map(([label, value]) => (
               <div key={label} className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/6"><div className="text-[11px] font-black uppercase text-slate-400">{label}</div><div className="mt-1 text-xl font-black">{value}</div></div>
             ))}
+            <div className={`rounded-3xl p-4 text-sm font-black ${decision.tone}`}>
+              Ticket check: {classState.loading ? "Checking..." : decision.label}
+            </div>
+            <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="flex items-center justify-center rounded-3xl bg-slate-950 p-4 text-sm font-black text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
+              Book / verify this ticket on IRCTC
+            </a>
             {classState.error && <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100">{classState.error}</div>}
           </div>
           <CoachExplorer initialClass={classCode} embedded />
@@ -958,6 +1012,8 @@ function ClassDetailModal({ train, classCode, journeyDate, onClose }: { train: a
 }
 
 function SplitJourneyCard({ split }: { split: any }) {
+  const leg1 = split.leg1 || {};
+  const leg2 = split.leg2 || {};
   return (
     <article className={softPanel("rounded-[30px] p-5")}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -968,9 +1024,29 @@ function SplitJourneyCard({ split }: { split: any }) {
         <div className="rounded-2xl bg-slate-50 p-4 text-sm font-black dark:bg-black/20">₹{split.totalFare || "--"} · {split.layoverDuration || "2h layover"}</div>
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">Train 1<br /><b>{split.leg1?.trainName || "Leg 1"}</b></div>
-        <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-300/20 dark:bg-violet-300/10">Platform change<br /><b>5 → 10</b><br /><span className="text-sm font-semibold text-slate-500 dark:text-slate-400">8 minutes · use foot overbridge</span></div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">Train 2<br /><b>{split.leg2?.trainName || "Leg 2"}</b></div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
+          <div className="text-sm text-slate-500">Train 1</div>
+          <b>{leg1.trainName || "Leg 1"}</b>
+          <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-black dark:bg-black/20">
+            {stationLabelFromCode(leg1.source || "PNBE", false)} {leg1.departureTime || "--:--"} → {stationLabelFromCode(leg1.destination || split.hubStation || "CNB", false)} {leg1.arrivalTime || "--:--"}
+          </div>
+          <div className="mt-2 text-xs font-bold text-slate-500">Duration {leg1.duration || "--"} · {readableRailStatus(leg1.availability) || "Check seats"}</div>
+        </div>
+        <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-300/20 dark:bg-violet-300/10">
+          <div className="text-sm text-slate-500">Platform change</div>
+          <b>5 → 10</b>
+          <br />
+          <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">8 minutes · use foot overbridge</span>
+          <div className="mt-3 text-xs font-black text-violet-700 dark:text-violet-100">Layover window: {leg1.arrivalTime || "--:--"} to {leg2.departureTime || "--:--"}</div>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
+          <div className="text-sm text-slate-500">Train 2</div>
+          <b>{leg2.trainName || "Leg 2"}</b>
+          <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-black dark:bg-black/20">
+            {stationLabelFromCode(leg2.source || split.hubStation || "CNB", false)} {leg2.departureTime || "--:--"} → {stationLabelFromCode(leg2.destination || "SBC", false)} {leg2.arrivalTime || "--:--"}
+          </div>
+          <div className="mt-2 text-xs font-bold text-slate-500">Duration {leg2.duration || "--"} · {readableRailStatus(leg2.availability) || "Check seats"}</div>
+        </div>
       </div>
     </article>
   );
@@ -978,40 +1054,53 @@ function SplitJourneyCard({ split }: { split: any }) {
 
 function CoachExplorer({ initialClass = "3A", embedded = false }: { initialClass?: string; embedded?: boolean }) {
   const [classType, setClassType] = useState(initialClass);
-  const [coach, setCoach] = useState(() => initialClass === "1A" ? "H1" : initialClass === "2A" ? "A1" : initialClass === "SL" ? "S1" : initialClass === "CC" ? "CC1" : initialClass === "EC" ? "EC1" : "B2");
+  const [coach, setCoach] = useState(() => defaultCoachFor(initialClass));
   const [selected, setSelected] = useState<string[]>([]);
   const seats = useMemo(() => buildCoachSeats(classType, coach), [classType, coach]);
+  const coachOptions = compatibleCoaches(classType);
+  const seatGroups = useMemo(() => groupSeatsForClass(classType, seats), [classType, seats]);
 
   return (
     <div className={embedded ? "" : softPanel("rounded-[32px] p-5")}>
       <div className="flex flex-wrap gap-2">
-        {classOptions.map((item) => <button key={item} onClick={() => { setClassType(item); setCoach(item === "1A" ? "H1" : item === "2A" ? "A1" : item === "SL" ? "S1" : item === "CC" ? "CC1" : item === "EC" ? "EC1" : "B2"); }} className={`rounded-full border px-3 py-2 text-xs font-black ${classType === item ? "border-cyan-400 bg-cyan-100 text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100" : "border-slate-200 bg-white dark:border-white/10 dark:bg-white/6"}`}>{item}</button>)}
+        {classOptions.map((item) => <button key={item} onClick={() => { setClassType(item); setCoach(defaultCoachFor(item)); setSelected([]); }} className={`rounded-full border px-3 py-2 text-xs font-black ${classType === item ? "border-cyan-400 bg-cyan-100 text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100" : "border-slate-200 bg-white dark:border-white/10 dark:bg-white/6"}`}>{item}</button>)}
       </div>
       <div className="mt-4 flex gap-2 overflow-auto pb-2">
-        {coachTabs.map((item) => <button key={item} onClick={() => setCoach(item)} className={`shrink-0 rounded-2xl border px-4 py-2 text-sm font-black ${coach === item ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-slate-950" : "border-slate-200 bg-white dark:border-white/10 dark:bg-white/6"}`}>{item}</button>)}
+        {coachOptions.map((item) => <button key={item} onClick={() => { setCoach(item); setSelected([]); }} className={`shrink-0 rounded-2xl border px-4 py-2 text-sm font-black ${coach === item ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-slate-950" : "border-slate-200 bg-white dark:border-white/10 dark:bg-white/6"}`}>{item}</button>)}
       </div>
       <div className="mt-5 rounded-[28px] border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-black/20">
         <div className="mb-4 flex items-center justify-between">
-          <div><h3 className="font-black">{classType === "1A" ? `${coach} cabin / coupe map` : `${coach} coach berth map`}</h3><p className="text-xs font-bold text-slate-500 dark:text-slate-400">{classType === "1A" ? "1AC cabins/coupes use LB/UB berths, not 3-tier bays" : "Available · booked · RAC · WL · selected"}</p></div>
+          <div>
+            <h3 className="font-black">{classType === "1A" ? `${coach} cabin / coupe map` : `${coach} coach berth map`}</h3>
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+              {classType === "1A" ? "1AC cabins/coupes use LB/UB berths, not 3-tier bays" : classType === "2A" ? "2AC bays use LB/UB plus side lower/upper, no middle berth" : ["3A", "3E", "SL"].includes(classType) ? "Each bay shows 6 main berths + 2 side berths" : "Chair car row layout"}
+            </p>
+          </div>
           <Train className="h-5 w-5 text-cyan-600 dark:text-cyan-200" />
         </div>
-        <div className="grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-8">
-          {seats.map((seat) => {
-            const isSelected = selected.includes(seat.id);
-            return (
-              <button key={seat.id} type="button" disabled={seat.state === "booked"} onClick={() => setSelected((items) => items.includes(seat.id) ? items.filter((id) => id !== seat.id) : [...items, seat.id])} className={`h-14 rounded-xl border text-xs font-black transition ${
-                isSelected ? "border-cyan-500 bg-cyan-400 text-slate-950" :
-                seat.state === "available" ? "border-emerald-300 bg-emerald-100 text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100" :
-                seat.state === "RAC" ? "border-amber-300 bg-amber-100 text-amber-800 dark:bg-amber-300/12 dark:text-amber-100" :
-                seat.state === "WL" ? "border-violet-300 bg-violet-100 text-violet-800 dark:bg-violet-300/12 dark:text-violet-100" :
-                "border-slate-200 bg-slate-200 text-slate-400 dark:border-white/10 dark:bg-white/8"
-              }`}>
-                <span className="block">{seat.number}</span>
-                <span>{seat.berth}</span>
-                {seat.cabin && <span className="block text-[9px] opacity-70">{seat.cabin}</span>}
-              </button>
-            );
-          })}
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {seatGroups.map((group) => (
+            <div key={group.label} className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-white/6">
+              <div className="mb-2 text-[11px] font-black uppercase text-slate-400">{group.label}</div>
+              <div className={`grid gap-2 ${classType === "1A" ? "grid-cols-2" : classType === "2A" ? "grid-cols-3" : ["CC", "EC"].includes(classType) ? "grid-cols-4" : "grid-cols-4"}`}>
+                {group.seats.map((seat) => {
+                  const isSelected = selected.includes(seat.id);
+                  return (
+                    <button key={seat.id} type="button" disabled={seat.state === "booked"} onClick={() => setSelected((items) => items.includes(seat.id) ? items.filter((id) => id !== seat.id) : [...items, seat.id])} className={`h-14 rounded-xl border text-xs font-black transition ${
+                      isSelected ? "border-cyan-500 bg-cyan-400 text-slate-950" :
+                      seat.state === "available" ? "border-emerald-300 bg-emerald-100 text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100" :
+                      seat.state === "RAC" ? "border-amber-300 bg-amber-100 text-amber-800 dark:bg-amber-300/12 dark:text-amber-100" :
+                      seat.state === "WL" ? "border-violet-300 bg-violet-100 text-violet-800 dark:bg-violet-300/12 dark:text-violet-100" :
+                      "border-slate-200 bg-slate-200 text-slate-400 dark:border-white/10 dark:bg-white/8"
+                    }`}>
+                      <span className="block">{seat.number}</span>
+                      <span>{seat.berth}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
