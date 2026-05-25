@@ -64,21 +64,6 @@ export interface SplitRouteResult {
   isHeritage?: boolean; // true for UNESCO heritage railway legs (toy trains etc.)
 }
 
-interface TrainStaticData {
-  trainNo: string;
-  trainName: string;
-  trainType: "Vande Bharat" | "Rajdhani" | "Shatabdi" | "Duronto" | "Superfast" | "Express";
-  duration: string;
-  depTime: string;
-  arrTime: string;
-  rating: number;
-  features: string[];
-  cleanliness: string;
-  punctuality: string;
-  classes: string[];
-  runningDays?: string;
-}
-
 function parseTime(timeStr: string, baseDate: string) {
   const [day, month, year] = baseDate.split('-');
   const [hours, minutes] = timeStr.split(':');
@@ -287,7 +272,7 @@ async function generate6DayAvailability(
     } else {
       throw new Error("Invalid availability format from IRCTC Proxy.");
     }
-  } catch (e) {
+  } catch {
     console.warn(`[IRCTC] Live seat check failed for ${trainNo}`);
     const estimatedFare = baseFare + reservationCharge + superfastCharge;
     list.push({
@@ -483,57 +468,6 @@ async function enrichWithLiveAvailability(train: any, date: string, classType: s
 }
 
 // Helper to estimate realistic travel time based on station codes
-function estimateRouteTravelTime(source: string, dest: string): { duration: string, depTime: string, arrTime: string, isLongRoute: boolean } {
-  const s = source.toUpperCase().trim();
-  const d = dest.toUpperCase().trim();
-
-  // If it's a known long-distance route, return authentic defaults
-  const isPatnaJaipur = (s === 'PNBE' || s === 'RJPB') && (d === 'JP' || d === 'JPR');
-  const isJaipurPatna = (d === 'PNBE' || d === 'RJPB') && (s === 'JP' || s === 'JPR');
-
-  if (isPatnaJaipur) {
-    return { duration: '18h 50m', depTime: '18:20', arrTime: '13:10', isLongRoute: true };
-  }
-  if (isJaipurPatna) {
-    return { duration: '20h 03m', depTime: '02:35', arrTime: '22:38', isLongRoute: true };
-  }
-
-  // General heuristic for Delhi-Patna (presets usually handle this, but as safety)
-  if ((s.startsWith('NDLS') || s.startsWith('NZM') || s.startsWith('ANVT')) && (d.startsWith('PNBE') || d.startsWith('RJPB'))) {
-    return { duration: '12h 15m', depTime: '19:25', arrTime: '07:40', isLongRoute: true };
-  }
-
-  // Estimate distance/duration using simple deterministic calculation from codes
-  const charSum = s.charCodeAt(0) + s.charCodeAt(1) + d.charCodeAt(0) + d.charCodeAt(1);
-  const distanceFactor = (charSum % 10) + 3; // 3 to 12
-
-  if (distanceFactor >= 8) {
-    // Long distance route (800km+, travel time > 14 hours)
-    return {
-      duration: `${distanceFactor + 8}h 15m`,
-      depTime: '18:15',
-      arrTime: `${(18 + distanceFactor + 8) % 24}:30`,
-      isLongRoute: true
-    };
-  } else if (distanceFactor >= 5) {
-    // Medium distance route (500km - 800km, travel time 8h to 13h)
-    return {
-      duration: `${distanceFactor + 4}h 45m`,
-      depTime: '08:30',
-      arrTime: `${(8 + distanceFactor + 4) % 24}:15`,
-      isLongRoute: false
-    };
-  } else {
-    // Short distance route (under 500km, travel time under 8h)
-    return {
-      duration: `${distanceFactor + 2}h 30m`,
-      depTime: '07:15',
-      arrTime: `${(7 + distanceFactor + 2) % 24}:45`,
-      isLongRoute: false
-    };
-  }
-}
-
 // Only cache SUCCESSFUL results — never cache empty results to ensure fallback logic always triggers
 const searchTrainsCache: Record<string, any[]> = {};
 
@@ -644,7 +578,7 @@ async function searchTrainsSmart(source: string, dest: string, date: string) {
     } else if (res && Array.isArray(res) && res.length > 0) {
       trains = res;
     }
-  } catch (e) {
+  } catch {
     console.warn(`[irctc-connect] API fetch failed for ${source}->${dest}. Returning empty.`);
     return [];
   }
@@ -948,8 +882,8 @@ export async function findSmartRoutes(source: string, dest: string, date: string
             combinedConfirmationChance: Math.round((c1 * c2) / 100),
             isHeritage: true
           });
-        } catch (e) {
-          console.warn(`[Hardcoded] Failed to enrich route via ${route.hub}:`, e);
+        } catch (error) {
+          console.warn(`[Hardcoded] Failed to enrich route via ${route.hub}:`, error);
         }
       }
       if (hardcodedResults.length > 0) {
@@ -1112,7 +1046,7 @@ export async function findSmartRoutes(source: string, dest: string, date: string
               }
             }
           }
-        } catch (e) {
+        } catch {
           console.warn(`[Smart Routing] Skipped hub ${hub} due to missing data.`);
         }
       }));

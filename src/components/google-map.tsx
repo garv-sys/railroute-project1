@@ -150,6 +150,8 @@ export function GoogleMapView({
     drawMarkers(map);
     if (activeRoute) highlightRoute(map, activeRoute);
     setLoaded(true);
+    // Google Maps is an imperative widget; route updates are handled by the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ─── Draw all corridor lines ──────────────────────────
@@ -260,6 +262,8 @@ export function GoogleMapView({
       drawRoutes(mapRef.current);
       highlightRoute(mapRef.current, activeRoute);
     }
+    // Route redraw intentionally keys on route identity; map helpers are stable for this mounted widget.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRoute?.from, activeRoute?.to]);
 
   return (

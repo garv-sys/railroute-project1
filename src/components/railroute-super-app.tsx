@@ -1,7 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Activity,
   AlertCircle,
@@ -164,7 +166,7 @@ function stationCityName(station: Station) {
 }
 
 function stationLabel(station: Station) {
-  return `${stationCityName(station)} (${stationState(station.code)}) — ${station.code}`;
+  return `${stationCityName(station)} (${stationState(station.code)})`;
 }
 
 function stationLabelFromCode(code: string) {
@@ -1275,6 +1277,7 @@ function UtilityModules({ source, destination, date, classType }: { source: stri
   const [pnrState, setPnrState] = useState<ApiState<any>>({ loading: false, error: "", data: null });
   const [trainNo, setTrainNo] = useState("");
   const [availabilityState, setAvailabilityState] = useState<ApiState<any>>({ loading: false, error: "", data: null });
+  const [fareState, setFareState] = useState<ApiState<any>>({ loading: false, error: "", data: null });
 
   async function checkPnr() {
     if (!/^\d{10}$/.test(pnr)) {
@@ -1304,8 +1307,23 @@ function UtilityModules({ source, destination, date, classType }: { source: stri
     }
   }
 
+  async function checkFare() {
+    if (!/^\d{5}$/.test(trainNo) || !source || !destination) {
+      setFareState({ loading: false, error: "Enter train number and select route stations first.", data: null });
+      return;
+    }
+    setFareState({ loading: true, error: "", data: null });
+    try {
+      const data = await postJson<any>("/api/fare", { trainNo, source, destination, date, classType: classType === "Any" ? "3A" : classType });
+      setFareState({ loading: false, error: "", data });
+    } catch (error) {
+      setFareState({ loading: false, error: error instanceof Error ? error.message : "Fare enquiry failed.", data: null });
+    }
+  }
+
   const pnrData = pnrState.data?.data || pnrState.data;
   const availability = availabilityState.data?.data?.availability || availabilityState.data?.availability || [];
+  const fare = fareState.data?.fare || fareState.data?.fareEnquiry?.data?.fare?.Fare || fareState.data?.availability?.data?.fare?.totalFare || null;
 
   return (
     <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
@@ -1313,7 +1331,7 @@ function UtilityModules({ source, destination, date, classType }: { source: stri
         <span className="text-xs font-black uppercase text-cyan-200">Premium utilities</span>
         <h2 className="mt-2 text-3xl font-black text-white sm:text-4xl">PNR, fare, seats, calendar, alerts</h2>
       </div>
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid gap-5 lg:grid-cols-4">
         <div className="rounded-[30px] border border-white/10 bg-white/8 p-5 backdrop-blur-xl">
           <ShieldCheck className="h-6 w-6 text-cyan-200" />
           <h3 className="mt-4 text-xl font-black text-white">PNR Status</h3>
@@ -1328,8 +1346,8 @@ function UtilityModules({ source, destination, date, classType }: { source: stri
 
         <div className="rounded-[30px] border border-white/10 bg-white/8 p-5 backdrop-blur-xl">
           <Wallet className="h-6 w-6 text-emerald-200" />
-          <h3 className="mt-4 text-xl font-black text-white">Seat Calendar</h3>
-          <p className="mt-2 text-sm font-semibold leading-6 text-slate-400">Next 7 days when the provider returns calendar availability.</p>
+          <h3 className="mt-4 text-xl font-black text-white">Seat Availability</h3>
+          <p className="mt-2 text-sm font-semibold leading-6 text-slate-400">Class-wise seats and next 7 days when provider calendar data is available.</p>
           <div className="mt-5 flex gap-2">
             <input value={trainNo} onChange={(event) => setTrainNo(event.target.value.replace(/\D/g, "").slice(0, 5))} placeholder="Train no." className="h-12 min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/8 px-4 text-sm font-black text-white outline-none placeholder:text-slate-500" />
             <button onClick={checkSeats} className="rounded-2xl bg-emerald-300 px-4 text-sm font-black text-slate-950">{availabilityState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Seats"}</button>
@@ -1342,6 +1360,22 @@ function UtilityModules({ source, destination, date, classType }: { source: stri
                 <div className="mt-1 text-xs font-black text-white">{item?.availabilityText || item?.status || "Awaiting"}</div>
               </div>
             ))}
+          </div>
+        </div>
+
+        <div className="rounded-[30px] border border-white/10 bg-white/8 p-5 backdrop-blur-xl">
+          <IndianRupee className="h-6 w-6 text-lime-200" />
+          <h3 className="mt-4 text-xl font-black text-white">Fare Enquiry</h3>
+          <p className="mt-2 text-sm font-semibold leading-6 text-slate-400">Live fare lookup for the selected train, route, class, and travel date.</p>
+          <div className="mt-5 flex gap-2">
+            <input value={trainNo} onChange={(event) => setTrainNo(event.target.value.replace(/\D/g, "").slice(0, 5))} placeholder="Train no." className="h-12 min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/8 px-4 text-sm font-black text-white outline-none placeholder:text-slate-500" />
+            <button onClick={checkFare} className="rounded-2xl bg-lime-300 px-4 text-sm font-black text-slate-950">{fareState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Fare"}</button>
+          </div>
+          {fareState.error && <p className="mt-3 text-xs font-semibold text-rose-200">{fareState.error}</p>}
+          <div className="mt-4 rounded-2xl border border-white/8 bg-white/6 p-4">
+            <div className="text-[11px] font-black uppercase text-slate-500">Estimated fare</div>
+            <div className="mt-1 text-2xl font-black text-white">{fare ? `₹${String(fare).replace(/^₹/, "")}` : "Awaiting"}</div>
+            <div className="mt-2 text-xs font-semibold text-slate-500">{classType === "Any" ? "3A fallback for enquiry" : classType} · {source || "Source"} to {destination || "Destination"}</div>
           </div>
         </div>
 
@@ -1649,5 +1683,471 @@ export function RailRouteSuperApp() {
         </div>
       </footer>
     </main>
+  );
+}
+
+function PremiumShell({
+  children,
+  navMode = "landing",
+}: {
+  children: ReactNode;
+  navMode?: "landing" | "workspace";
+}) {
+  return (
+    <main className="min-h-screen overflow-hidden bg-[#050816] text-white">
+      <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_20%_0%,rgba(34,211,238,0.16),transparent_28%),radial-gradient(circle_at_90%_20%,rgba(251,113,133,0.13),transparent_30%),linear-gradient(180deg,#050816_0%,#08111f_48%,#0b1020_100%)]" />
+      <nav className="sticky top-0 z-50 border-b border-white/8 bg-[#050816]/78 backdrop-blur-2xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
+          <Link href="/" className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-slate-950 shadow-lg shadow-cyan-950/20">
+              <Train className="h-5 w-5" />
+            </span>
+            <span className="text-lg font-black">RailRoute</span>
+          </Link>
+          <div className="hidden items-center gap-1 lg:flex">
+            {(navMode === "landing"
+              ? [
+                  ["Search", "#search"],
+                  ["Map", "#map-preview"],
+                  ["Trust", "#trust"],
+                  ["Workspace", "/book"],
+                ]
+              : [
+                  ["Results", "#results"],
+                  ["Map", "#map"],
+                  ["Live", "#live"],
+                  ["Utilities", "#utilities"],
+                  ["Home", "/"],
+                ]).map(([label, href]) => (
+              <a key={label} href={href} className="rounded-2xl px-3 py-2 text-sm font-bold text-slate-400 transition hover:bg-white/8 hover:text-white">{label}</a>
+            ))}
+          </div>
+          <a href={navMode === "landing" ? "#search" : "/"} className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/8 px-4 py-2 text-sm font-black text-white transition hover:bg-white/12">
+            {navMode === "landing" ? "Start Search" : "New Search"}
+            <ArrowRight className="h-4 w-4" />
+          </a>
+        </div>
+      </nav>
+      {children}
+    </main>
+  );
+}
+
+function LandingMapBackdrop() {
+  const route = ["JP", "NDLS", "PNBE"]
+    .map((code, index) => {
+      const station = MAJOR_STATIONS.find((item) => item.code === code)!;
+      const point = projectPoint(station.lat, station.lng, 1, { x: 0, y: 0 });
+      return `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`;
+    })
+    .join(" ");
+
+  return (
+    <div className="absolute inset-0 overflow-hidden opacity-80">
+      <svg viewBox="0 0 760 760" className="absolute right-[-12%] top-[-12%] h-[120%] w-[92%] min-w-[720px]" aria-hidden="true">
+        <defs>
+          <filter id="landingGlow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="8" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+          <linearGradient id="landingRoute" x1="0" x2="1">
+            <stop offset="0%" stopColor="#6ee7b7" />
+            <stop offset="55%" stopColor="#22d3ee" />
+            <stop offset="100%" stopColor="#fb7185" />
+          </linearGradient>
+        </defs>
+        <path d="M246 68 C320 42 442 54 514 120 C590 190 624 294 611 394 C598 498 543 608 454 680 C368 750 263 709 216 635 C169 561 130 493 118 402 C105 302 150 116 246 68Z" fill="rgba(255,255,255,0.035)" stroke="rgba(255,255,255,0.14)" strokeWidth="2" />
+        <path d={route} fill="none" stroke="url(#landingRoute)" strokeWidth="5" strokeLinecap="round" filter="url(#landingGlow)" />
+        <motion.circle r="9" fill="#fff" filter="url(#landingGlow)" animate={{ cx: [projectPoint(26.9196, 75.7878, 1, { x: 0, y: 0 }).x, projectPoint(28.6423, 77.2209, 1, { x: 0, y: 0 }).x, projectPoint(25.6094, 85.1376, 1, { x: 0, y: 0 }).x], cy: [projectPoint(26.9196, 75.7878, 1, { x: 0, y: 0 }).y, projectPoint(28.6423, 77.2209, 1, { x: 0, y: 0 }).y, projectPoint(25.6094, 85.1376, 1, { x: 0, y: 0 }).y] }} transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }} />
+        {MAJOR_STATIONS.slice(0, 14).map((station) => {
+          const point = projectPoint(station.lat, station.lng, 1, { x: 0, y: 0 });
+          return (
+            <g key={station.code} transform={`translate(${point.x} ${point.y})`}>
+              <circle r="5" fill="rgba(226,232,240,0.86)" stroke="#0f172a" strokeWidth="2" />
+              <text x="10" y="-8" fill="#e5e7eb" fontSize="12" fontWeight="800">{station.code}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function LandingSearchCard() {
+  const router = useRouter();
+  const [source, setSource] = useState("");
+  const [destination, setDestination] = useState("");
+  const [sourceQuery, setSourceQuery] = useState("");
+  const [destinationQuery, setDestinationQuery] = useState("");
+  const [date, setDate] = useState(todayIso(1));
+  const [classType, setClassType] = useState("Any");
+  const [error, setError] = useState("");
+  const [swapSpin, setSwapSpin] = useState(false);
+
+  function swapStations() {
+    setSwapSpin(true);
+    const oldSource = source;
+    const oldSourceQuery = sourceQuery;
+    setSource(destination);
+    setDestination(oldSource);
+    setSourceQuery(destinationQuery);
+    setDestinationQuery(oldSourceQuery);
+    window.setTimeout(() => setSwapSpin(false), 420);
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!source || !destination) {
+      setError("Choose both Starting Point and Destination from station search.");
+      return;
+    }
+    if (source === destination) {
+      setError("Starting Point and Destination cannot be the same.");
+      return;
+    }
+
+    const params = new URLSearchParams({ source, destination, date, classType });
+    router.push(`/book?${params.toString()}`);
+  }
+
+  return (
+    <motion.form
+      id="search"
+      onSubmit={submit}
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.15 }}
+      className="mx-auto w-full max-w-5xl rounded-[32px] border border-white/12 bg-white/10 p-4 shadow-2xl shadow-black/40 backdrop-blur-2xl sm:p-5"
+    >
+      <div className="grid gap-3 lg:grid-cols-[1fr_auto_1fr] lg:items-end">
+        <StationAutocomplete
+          label="From"
+          value={source}
+          query={sourceQuery}
+          setQuery={setSourceQuery}
+          onSelect={setSource}
+          placeholder="Starting Point"
+          example="e.g. Jaipur (Rajasthan)"
+        />
+        <button
+          type="button"
+          onClick={swapStations}
+          className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-white/14 bg-white/10 text-cyan-100 shadow-lg transition hover:border-cyan-300/40 hover:bg-cyan-300/12"
+          aria-label="Swap source and destination"
+        >
+          <motion.span animate={{ rotate: swapSpin ? 180 : 0, scale: swapSpin ? 1.15 : 1 }} transition={{ type: "spring", stiffness: 420, damping: 18 }}>
+            <ArrowDownUp className="h-5 w-5" />
+          </motion.span>
+        </button>
+        <StationAutocomplete
+          label="To"
+          value={destination}
+          query={destinationQuery}
+          setQuery={setDestinationQuery}
+          onSelect={setDestination}
+          placeholder="Destination"
+          example="e.g. Patna (Bihar)"
+        />
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+        <div>
+          <label className="mb-2 block text-[11px] font-black uppercase text-slate-400">Travel Date</label>
+          <input type="date" min={todayIso()} value={date} onChange={(event) => setDate(event.target.value)} className="h-13 w-full rounded-2xl border border-white/10 bg-white/8 px-4 text-sm font-bold text-white outline-none focus:border-cyan-300/60" />
+        </div>
+        <div>
+          <label className="mb-2 block text-[11px] font-black uppercase text-slate-400">Train Class</label>
+          <select value={classType} onChange={(event) => setClassType(event.target.value)} className="h-13 w-full rounded-2xl border border-white/10 bg-[#111827] px-4 text-sm font-bold text-white outline-none focus:border-cyan-300/60">
+            {["Any", "SL", "3A", "2A", "1A", "CC", "EC"].map((item) => <option key={item} value={item}>{item === "Any" ? "Any Class" : item}</option>)}
+          </select>
+        </div>
+        <button className="mt-0 flex h-13 items-center justify-center gap-2 rounded-2xl bg-white px-7 text-sm font-black text-slate-950 shadow-xl shadow-cyan-950/20 transition hover:bg-cyan-50 md:self-end">
+          <Search className="h-4 w-4" />
+          Search
+        </button>
+      </div>
+      {error && <p className="mt-3 rounded-2xl border border-rose-300/25 bg-rose-400/10 px-4 py-3 text-sm font-bold text-rose-100">{error}</p>}
+    </motion.form>
+  );
+}
+
+export function RailRouteLandingPage() {
+  return (
+    <PremiumShell navMode="landing">
+      <section className="relative z-10 min-h-[calc(100vh-73px)] overflow-hidden px-4 py-10 sm:px-6">
+        <LandingMapBackdrop />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(5,8,22,0.98)_0%,rgba(5,8,22,0.82)_46%,rgba(5,8,22,0.44)_100%)]" />
+        <div className="relative mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+          <div className="py-10">
+            <motion.span initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="inline-flex items-center gap-2 rounded-full border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-black uppercase text-cyan-100">
+              <Sparkles className="h-3.5 w-3.5" />
+              Indian railway travel intelligence
+            </motion.span>
+            <motion.h1 initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="mt-6 max-w-3xl text-5xl font-black leading-[1.02] text-white sm:text-6xl lg:text-7xl">
+              Plan Smarter Railway Journeys
+            </motion.h1>
+            <motion.p initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="mt-6 max-w-2xl text-lg font-semibold leading-8 text-slate-300">
+              Live train tracking, smart route planning, seat intelligence, split journeys, fare comparison and more.
+            </motion.p>
+            <div className="mt-8 grid gap-3 sm:grid-cols-3">
+              {[
+                ["Live inventory", "Train, fare and seats"],
+                ["Map-first planning", "Route layers and ETA"],
+                ["Premium trains", "Vande Bharat inspired"],
+              ].map(([title, body]) => (
+                <div key={title} className="rounded-3xl border border-white/10 bg-white/7 p-4 backdrop-blur-xl">
+                  <div className="text-sm font-black text-white">{title}</div>
+                  <div className="mt-1 text-xs font-semibold text-slate-500">{body}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <motion.div initial={{ opacity: 0, scale: 0.96, x: 24 }} animate={{ opacity: 1, scale: 1, x: 0 }} transition={{ duration: 0.7 }} className="relative hidden min-h-[520px] overflow-hidden rounded-[34px] border border-white/10 bg-slate-950 shadow-2xl shadow-black/40 lg:block">
+            <Image src="/vande-bharat-hero.jpg" alt="Vande Bharat Express train" fill priority sizes="48vw" className="object-cover opacity-72" />
+            <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(5,8,22,0.88)_0%,rgba(5,8,22,0.42)_46%,rgba(5,8,22,0.14)_100%)]" />
+            <motion.div className="absolute bottom-10 left-8 flex items-center gap-3 rounded-3xl border border-white/12 bg-white/10 px-4 py-3 backdrop-blur-2xl" animate={{ y: [0, -8, 0] }} transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}>
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-200 text-slate-950"><Activity className="h-5 w-5" /></span>
+              <div><div className="text-sm font-black text-white">Vande Bharat corridor feel</div><div className="text-xs font-semibold text-slate-300">Fast UX · live ETA · premium trust</div></div>
+            </motion.div>
+          </motion.div>
+        </div>
+        <div className="relative mx-auto mt-4 max-w-7xl">
+          <LandingSearchCard />
+        </div>
+      </section>
+      <section id="map-preview" className="relative z-10 mx-auto max-w-7xl px-4 py-16 sm:px-6">
+        <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+          <div className="rounded-[34px] border border-white/10 bg-white/8 p-5 backdrop-blur-xl">
+            <h2 className="text-3xl font-black text-white">Interactive India map background</h2>
+            <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-400">RailRoute turns source and destination into a visual journey, with major station markers, animated path previews and split-route planning.</p>
+            <div className="relative mt-6 min-h-[360px] overflow-hidden rounded-[28px] border border-white/10 bg-[#07111f]">
+              <LandingMapBackdrop />
+            </div>
+          </div>
+          <div id="trust" className="space-y-4">
+            {[
+              { icon: ShieldCheck, title: "IRCTC-compatible APIs", body: "Built around live train search, PNR, seats, fare and schedule endpoints." },
+              { icon: Radio, title: "Live train intelligence", body: "Working status modules are separated on the results page for fast focused usage." },
+              { icon: Wallet, title: "Travel-commerce polish", body: "Modern trust cues inspired by flight apps, RedBus and premium fintech UX." },
+            ].map(({ icon: Icon, title, body }) => (
+              <div key={title} className="rounded-[28px] border border-white/10 bg-white/8 p-5 backdrop-blur-xl">
+                <Icon className="h-5 w-5 text-cyan-200" />
+                <h3 className="mt-4 text-lg font-black text-white">{title}</h3>
+                <p className="mt-2 text-sm font-semibold leading-6 text-slate-400">{body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </PremiumShell>
+  );
+}
+
+export function RailRouteSearchWorkspace({
+  initialSource = "",
+  initialDestination = "",
+  initialDate = todayIso(1),
+  initialClassType = "Any",
+}: {
+  initialSource?: string;
+  initialDestination?: string;
+  initialDate?: string;
+  initialClassType?: string;
+}) {
+  const [source, setSource] = useState(initialSource);
+  const [destination, setDestination] = useState(initialDestination);
+  const [sourceQuery, setSourceQuery] = useState(() => {
+    const station = initialSource ? stationByCode(initialSource) : null;
+    return station ? stationLabel(station) : "";
+  });
+  const [destinationQuery, setDestinationQuery] = useState(() => {
+    const station = initialDestination ? stationByCode(initialDestination) : null;
+    return station ? stationLabel(station) : "";
+  });
+  const [date, setDate] = useState(initialDate || todayIso(1));
+  const [classType, setClassType] = useState(initialClassType || "Any");
+  const [smartToggles, setSmartToggles] = useState<SmartToggle[]>(["split"]);
+  const [mode, setMode] = useState<TravelMode>("balanced");
+  const [sort, setSort] = useState<SortKey>("recommended");
+  const [filters, setFilters] = useState<string[]>([]);
+  const [direct, setDirect] = useState<ApiState<any[]>>({ loading: false, error: "", data: null });
+  const [splits, setSplits] = useState<any[]>([]);
+  const [recent, setRecent] = useState<{ source: string; destination: string; date: string }[]>([]);
+  const [favorites, setFavorites] = useState<string[]>([]);
+
+  useEffect(() => {
+    try {
+      setRecent(JSON.parse(localStorage.getItem("railroute_recent_searches") || "[]"));
+      setFavorites(JSON.parse(localStorage.getItem("railroute_favorites") || "[]"));
+    } catch {
+      setRecent([]);
+      setFavorites([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("railroute_favorites", JSON.stringify(favorites));
+  }, [favorites]);
+
+  async function runSearch(event?: FormEvent) {
+    event?.preventDefault();
+    if (!source || !destination) {
+      setDirect({ loading: false, error: "Select a Starting Point and Destination from the nationwide station search.", data: null });
+      return;
+    }
+    if (source === destination) {
+      setDirect({ loading: false, error: "Starting Point and Destination cannot be the same station.", data: null });
+      return;
+    }
+
+    setDirect({ loading: true, error: "", data: null });
+    setSplits([]);
+    const searchRecord = { source, destination, date };
+    const updatedRecent = [searchRecord, ...recent.filter((item) => item.source !== source || item.destination !== destination)].slice(0, 5);
+    setRecent(updatedRecent);
+    localStorage.setItem("railroute_recent_searches", JSON.stringify(updatedRecent));
+
+    try {
+      const directResult = await postJson<{ trains: any[] }>("/api/train-between", { source, destination, date, classType });
+      let trains = directResult.trains || [];
+      if (mode === "cheapest" || smartToggles.includes("lowest")) {
+        trains = [...trains].sort((a, b) => parseFare(a.fare) - parseFare(b.fare));
+      }
+      if (mode === "fastest" || smartToggles.includes("fastest")) {
+        trains = [...trains].sort((a, b) => parseDurationMinutes(a.duration) - parseDurationMinutes(b.duration));
+      }
+      setDirect({ loading: false, error: "", data: trains });
+
+      if (smartToggles.includes("split")) {
+        postJson<{ splitRoutes: any[] }>("/api/search-split", { source, destination, date, classType, directTrains: trains })
+          .then((data) => setSplits(data.splitRoutes || []))
+          .catch(() => setSplits([]));
+      }
+    } catch (error) {
+      setDirect({ loading: false, error: error instanceof Error ? error.message : "Railway search failed.", data: null });
+    }
+  }
+
+  useEffect(() => {
+    if (initialSource && initialDestination) {
+      window.setTimeout(() => runSearch(), 50);
+    }
+    // Run once from the landing page query params.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function chooseRecent(item: { source: string; destination: string; date: string }) {
+    const sourceStation = stationByCode(item.source);
+    const destStation = stationByCode(item.destination);
+    setSource(item.source);
+    setDestination(item.destination);
+    setDate(item.date);
+    if (sourceStation) setSourceQuery(stationLabel(sourceStation));
+    if (destStation) setDestinationQuery(stationLabel(destStation));
+  }
+
+  const bestTrain = direct.data?.[0] || null;
+  const routeLabel = source && destination ? `${stationLabelFromCode(source)} to ${stationLabelFromCode(destination)}` : "Choose your railway corridor";
+
+  return (
+    <PremiumShell navMode="workspace">
+      <section id="top" className="relative z-10 border-b border-white/8 px-4 py-8 sm:px-6">
+        <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[0.74fr_0.26fr] lg:items-center">
+          <div>
+            <span className="inline-flex items-center gap-2 rounded-full border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-black uppercase text-cyan-100">
+              <Route className="h-3.5 w-3.5" />
+              Search workspace
+            </span>
+            <h1 className="mt-4 text-3xl font-black text-white sm:text-5xl">Train results, live tools and route intelligence.</h1>
+            <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-400">Use this page for real train search, PNR, live train status, seat availability, fare enquiry, sorting and filters.</p>
+          </div>
+          <div className="hidden overflow-hidden rounded-[28px] border border-white/10 bg-white/8 p-3 backdrop-blur-xl lg:block">
+            <div className="relative h-44 overflow-hidden rounded-3xl">
+              <Image src="/vande-bharat-hero.jpg" alt="Vande Bharat Express train" fill sizes="320px" className="object-cover opacity-80" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#050816] to-transparent" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="relative z-20 mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        <SmartSearchPanel
+          source={source}
+          destination={destination}
+          sourceQuery={sourceQuery}
+          destinationQuery={destinationQuery}
+          setSourceQuery={setSourceQuery}
+          setDestinationQuery={setDestinationQuery}
+          setSource={setSource}
+          setDestination={setDestination}
+          date={date}
+          setDate={setDate}
+          classType={classType}
+          setClassType={setClassType}
+          smartToggles={smartToggles}
+          setSmartToggles={setSmartToggles}
+          mode={mode}
+          setMode={setMode}
+          loading={direct.loading}
+          onSubmit={runSearch}
+        />
+        <div className="mt-4 flex flex-wrap gap-2">
+          {recent.map((item) => (
+            <button key={`${item.source}-${item.destination}-${item.date}`} onClick={() => chooseRecent(item)} className="rounded-full border border-white/10 bg-white/7 px-3 py-2 text-xs font-black text-slate-300 transition hover:bg-white/12">
+              {item.source} → {item.destination}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="relative z-10 mx-auto max-w-7xl px-4 py-4 sm:px-6">
+        <div className="grid gap-4 lg:grid-cols-4">
+          {[
+            { icon: Star, title: "Best Train For Me", body: bestTrain ? `${bestTrain.trainName} looks strongest for ${mode}.` : "Run a search for a ranked recommendation." },
+            { icon: IndianRupee, title: "Cheapest travel hint", body: bestTrain ? `Fare preview starts around ${bestTrain.fare}.` : "Lowest fare mode is ready." },
+            { icon: Gauge, title: "Delay reliability", body: bestTrain ? `${confidenceFor(bestTrain)}% route confidence` : "Reliability scores appear with results." },
+            { icon: Copy, title: "Share itinerary", body: routeLabel },
+          ].map(({ icon: Icon, title, body }) => (
+            <div key={title} className="rounded-[28px] border border-white/10 bg-white/7 p-5 backdrop-blur-xl">
+              <Icon className="h-5 w-5 text-cyan-200" />
+              <h3 className="mt-4 text-lg font-black text-white">{title}</h3>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-400">{body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <ResultsBoard
+        trains={direct.data || []}
+        splits={splits}
+        loading={direct.loading}
+        error={direct.error}
+        classType={classType}
+        sort={sort}
+        setSort={setSort}
+        filters={filters}
+        setFilters={setFilters}
+        smartToggles={smartToggles}
+        favorites={favorites}
+        setFavorites={setFavorites}
+      />
+      <IndiaMapExperience
+        source={source}
+        destination={destination}
+        setSource={setSource}
+        setDestination={setDestination}
+        setSourceQuery={setSourceQuery}
+        setDestinationQuery={setDestinationQuery}
+      />
+      <LiveTrainIntelligence />
+      <div id="utilities">
+        <UtilityModules source={source} destination={destination} date={date} classType={classType} />
+      </div>
+      <footer className="relative z-10 border-t border-white/8 px-4 py-10 sm:px-6">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 text-sm font-semibold text-slate-500 md:flex-row md:items-center md:justify-between">
+          <span>RailRoute search workspace · live railway tools</span>
+          <span>Vande Bharat image: Wikimedia Commons CC0.</span>
+        </div>
+      </footer>
+    </PremiumShell>
   );
 }

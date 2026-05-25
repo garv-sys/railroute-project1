@@ -1,7 +1,6 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Train } from "lucide-react";
 
 // ─── Geographically Accurate City Coordinates ──────────────────────────────
 // Calculated from real lat/lon projected onto India's bounding box
