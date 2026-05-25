@@ -179,6 +179,26 @@ function liveFareText(train: any) {
   return formatFare(train?.fare || train?._fare || "");
 }
 
+function fareToNumber(value: unknown) {
+  const amount = Number(String(value || "").replace(/[^\d.]/g, ""));
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function trainFareAmount(train: any) {
+  return fareToNumber(train?.fare || train?._fare || train?.totalFare);
+}
+
+function isSeatAvailable(value: unknown) {
+  const status = readableRailStatus(value).toUpperCase();
+  return /\bAVAILABLE\b|\bAVL\b|CNF|CONFIRM/.test(status) && !/WL|WAIT|REGRET|UNAVAILABLE|NOT RUNNING/.test(status);
+}
+
+function timeToMinutes(value: unknown) {
+  const match = String(value || "").match(/(\d{1,2}):(\d{2})/);
+  if (!match) return 24 * 60 + 1;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
 function estimatedClassFare(classCode: string, trainFare: unknown) {
   const existing = Number(String(trainFare || "").replace(/[^\d.]/g, ""));
   if (existing > 0) {
@@ -933,8 +953,49 @@ function TrainResultsWorkspace() {
   const [classType, setClassType] = useState("3A");
   const [allowSplit, setAllowSplit] = useState(true);
   const [resultMode, setResultMode] = useState<"all" | "direct" | "split">("all");
+  const [availableOnly, setAvailableOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<"best" | "cheapest" | "fastest" | "earliest" | "latest">("best");
+  const [maxFare, setMaxFare] = useState("");
+  const [maxDuration, setMaxDuration] = useState("");
   const [state, setState] = useState<{ loading: boolean; splitLoading: boolean; error: string; trains: any[]; splits: any[] }>({ loading: false, splitLoading: false, error: "", trains: [], splits: [] });
   const [classView, setClassView] = useState<{ train: any; classCode: string } | null>(null);
+  const filteredTrains = useMemo(() => {
+    const fareLimit = Number(maxFare) || Infinity;
+    const durationLimit = maxDuration ? Number(maxDuration) * 60 : Infinity;
+    const next = state.trains.filter((train) => {
+      const fare = trainFareAmount(train);
+      const duration = durationToMinutes(train.duration);
+      if (availableOnly && !isSeatAvailable(train.availability)) return false;
+      if (fare && fare > fareLimit) return false;
+      if (duration && duration > durationLimit) return false;
+      return true;
+    });
+    return [...next].sort((a, b) => {
+      if (sortBy === "cheapest") return (trainFareAmount(a) || Infinity) - (trainFareAmount(b) || Infinity);
+      if (sortBy === "fastest") return (durationToMinutes(a.duration) || Infinity) - (durationToMinutes(b.duration) || Infinity);
+      if (sortBy === "earliest") return timeToMinutes(a.departureTime) - timeToMinutes(b.departureTime);
+      if (sortBy === "latest") return timeToMinutes(b.departureTime) - timeToMinutes(a.departureTime);
+      const availabilityScore = (train: any) => isSeatAvailable(train.availability) ? 0 : /RAC/i.test(readableRailStatus(train.availability)) ? 1 : 2;
+      return availabilityScore(a) - availabilityScore(b) || (trainFareAmount(a) || Infinity) - (trainFareAmount(b) || Infinity) || (durationToMinutes(a.duration) || Infinity) - (durationToMinutes(b.duration) || Infinity);
+    });
+  }, [availableOnly, maxDuration, maxFare, sortBy, state.trains]);
+  const filteredSplits = useMemo(() => {
+    const fareLimit = Number(maxFare) || Infinity;
+    const durationLimit = maxDuration ? Number(maxDuration) * 60 : Infinity;
+    return state.splits.filter((split) => {
+      const fare = fareToNumber(split.totalFare || split.fare);
+      const duration = durationToMinutes(splitTotalDuration(split));
+      const seatsOk = isSeatAvailable(split.leg1?.availability) && isSeatAvailable(split.leg2?.availability);
+      if (availableOnly && !seatsOk) return false;
+      if (fare && fare > fareLimit) return false;
+      if (duration && duration > durationLimit) return false;
+      return true;
+    }).sort((a, b) => {
+      if (sortBy === "cheapest") return (fareToNumber(a.totalFare) || Infinity) - (fareToNumber(b.totalFare) || Infinity);
+      if (sortBy === "fastest") return (durationToMinutes(splitTotalDuration(a)) || Infinity) - (durationToMinutes(splitTotalDuration(b)) || Infinity);
+      return 0;
+    });
+  }, [availableOnly, maxDuration, maxFare, sortBy, state.splits]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1025,22 +1086,49 @@ function TrainResultsWorkspace() {
       {state.error && <div className="mt-5 rounded-3xl border border-rose-300/40 bg-rose-50 p-5 font-bold text-rose-700 dark:bg-rose-400/10 dark:text-rose-100">{state.error}</div>}
       {state.loading && <LoadingBlock label="Scanning live train inventory..." />}
       {(state.trains.length > 0 || state.splits.length > 0) && (
-        <div className="mt-6 flex flex-wrap gap-2">
-          {[
-            ["all", `All options (${state.trains.length + (allowSplit ? state.splits.length : 0)})`],
-            ["direct", `Direct trains (${state.trains.length})`],
-            ["split", `Split journeys (${state.splits.length})`],
-          ].map(([key, label]) => (
-            <button key={key} type="button" onClick={() => setResultMode(key as "all" | "direct" | "split")} className={`rounded-full border px-4 py-2 text-xs font-black ${resultMode === key ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-slate-950" : "border-slate-200 bg-white text-slate-500 dark:border-white/10 dark:bg-white/6 dark:text-slate-300"}`}>
-              {label}
+        <div className={softPanel("mt-6 rounded-[28px] p-4")}>
+          <div className="flex flex-wrap gap-2">
+            {[
+              ["all", `All options (${filteredTrains.length + (allowSplit ? filteredSplits.length : 0)})`],
+              ["direct", `Direct trains (${filteredTrains.length})`],
+              ["split", `Split journeys (${filteredSplits.length})`],
+            ].map(([key, label]) => (
+              <button key={key} type="button" onClick={() => setResultMode(key as "all" | "direct" | "split")} className={`rounded-full border px-4 py-2 text-xs font-black ${resultMode === key ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-slate-950" : "border-slate-200 bg-white text-slate-500 dark:border-white/10 dark:bg-white/6 dark:text-slate-300"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-[auto_1fr_1fr_1fr]">
+            <button type="button" onClick={() => setAvailableOnly((value) => !value)} className={`rounded-2xl border px-4 py-3 text-sm font-black ${availableOnly ? "border-emerald-300 bg-emerald-100 text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-white/10 dark:bg-white/6 dark:text-slate-300"}`}>
+              Available seats only
             </button>
-          ))}
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)} className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black dark:border-white/10 dark:bg-[#111827] dark:text-white">
+              <option value="best">Best availability + value</option>
+              <option value="cheapest">Cheapest first</option>
+              <option value="fastest">Fastest first</option>
+              <option value="earliest">Earliest departure</option>
+              <option value="latest">Latest departure</option>
+            </select>
+            <input value={maxFare} onChange={(event) => setMaxFare(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="Max fare, e.g. 2000" className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black outline-none focus:border-cyan-400 dark:border-white/10 dark:bg-white/8 dark:text-white" />
+            <input value={maxDuration} onChange={(event) => setMaxDuration(event.target.value.replace(/[^\d.]/g, "").slice(0, 4))} placeholder="Max hours, e.g. 12" className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black outline-none focus:border-cyan-400 dark:border-white/10 dark:bg-white/8 dark:text-white" />
+          </div>
+          <div className="mt-3 text-xs font-bold text-slate-500 dark:text-slate-400">
+            Filters use live IRCTC-compatible availability/fare fields when returned, with cached estimates only when the provider does not expose quota data.
+          </div>
         </div>
       )}
       <div className="mt-6 space-y-4">
-        {(resultMode === "all" || resultMode === "direct") && state.trains.map((train) => <PremiumTrainCard key={`${train.trainNo}-${train.source}-${train.destination}`} train={train} onClass={(classCode) => setClassView({ train, classCode })} />)}
+        {(resultMode === "all" || resultMode === "direct") && filteredTrains.map((train) => <PremiumTrainCard key={`${train.trainNo}-${train.source}-${train.destination}`} train={train} onClass={(classCode) => setClassView({ train, classCode })} />)}
         {allowSplit && state.splitLoading && (resultMode === "all" || resultMode === "split") && <LoadingBlock label="Finding real split journeys from live train data..." />}
-        {allowSplit && (resultMode === "all" || resultMode === "split") && state.splits.map((split, index) => <SplitJourneyCard key={`${split.hubStation}-${index}`} split={split} />)}
+        {allowSplit && (resultMode === "all" || resultMode === "split") && filteredSplits.map((split, index) => <SplitJourneyCard key={`${split.hubStation}-${index}`} split={split} />)}
+        {!state.loading && !state.splitLoading && (state.trains.length > 0 || state.splits.length > 0) && !filteredTrains.length && !filteredSplits.length && (
+          <div className={softPanel("rounded-[30px] p-6")}>
+            <h3 className="text-2xl font-black">No trains match these filters.</h3>
+            <p className="mt-2 text-sm font-semibold leading-6 text-slate-500 dark:text-slate-400">
+              Try switching off available-only, increasing max fare, or increasing max journey hours.
+            </p>
+          </div>
+        )}
         {!state.loading && !state.splitLoading && !state.trains.length && !state.splits.length && (
           <div className={softPanel("rounded-[30px] p-6")}>
             <h3 className="text-2xl font-black">No live train options found for this exact search.</h3>
@@ -1316,27 +1404,45 @@ function InlineRoutePanel({ trainNo, train }: { trainNo: string; train: any }) {
     };
   }, [trainNo]);
 
+  const route = state.route.length ? state.route : [
+    { code: train.source, departure: train.departureTime, arrival: "Start", halt: "-" },
+    { code: train.destination, arrival: train.arrivalTime, departure: "End", halt: "-" },
+  ];
+
   return (
     <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-xs font-black uppercase text-slate-400">Route window</div>
+          <div className="text-xs font-black uppercase text-slate-400">Complete route</div>
           <div className="mt-1 text-lg font-black">{train.departureTime || "--:--"} → {train.arrivalTime || "--:--"}</div>
+          <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">Showing every station returned by the IRCTC-compatible schedule endpoint.</div>
         </div>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-black/20 dark:text-slate-300">{state.route.length || "Full"} stops</span>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-black/20 dark:text-slate-300">{route.length} stops</span>
       </div>
       {state.loading && <div className="mt-4 text-sm font-bold text-slate-500">Loading route from train schedule...</div>}
       {state.error && <div className="mt-4 text-sm font-bold text-rose-600">{state.error}</div>}
-      <div className="mt-4 grid gap-2 md:grid-cols-2">
-        {(state.route.length ? state.route.slice(0, 8) : [
-          { code: train.source, departure: train.departureTime, arrival: "Start", halt: "-" },
-          { code: train.destination, arrival: train.arrivalTime, departure: "End", halt: "-" },
-        ]).map((stop: any, index: number) => (
-          <div key={`${stop.code}-${index}`} className="rounded-2xl bg-slate-50 p-3 text-sm dark:bg-black/20">
-            <div className="font-black">{stop.label || stationLabelFromCode(stop.code)}</div>
-            <div className="mt-1 text-xs font-bold text-slate-500">Arr {stop.arrival || "--"} · Dep {stop.departure || "--"} · Halt {stop.halt || "-"}</div>
+      <div className="mt-4 max-h-[560px] overflow-y-auto pr-1">
+        <div className="grid gap-2 md:grid-cols-2">
+          {route.map((stop: any, index: number) => (
+            <div key={`${stop.code}-${index}`} className="rounded-2xl bg-slate-50 p-3 text-sm dark:bg-black/20">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-black">{stop.label || stationLabelFromCode(stop.code)}</div>
+                  <div className="mt-1 text-xs font-bold text-slate-500">Arr {stop.arrival || "--"} · Dep {stop.departure || "--"} · Halt {stop.halt || "-"}</div>
+                </div>
+                <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-slate-500 dark:bg-white/10 dark:text-slate-300">#{index + 1}</span>
+              </div>
+              <div className="mt-2 text-[11px] font-bold text-slate-400">
+                Platform {stop.platform || "TBA"} · Day {stop.day || 1} · {stop.distance ?? "--"} km
+              </div>
+            </div>
+          ))}
+        </div>
+        {route.length > 20 && (
+          <div className="sticky bottom-0 mt-3 rounded-2xl border border-slate-200 bg-white/90 p-3 text-center text-xs font-black text-slate-500 backdrop-blur dark:border-white/10 dark:bg-[#101725]/90 dark:text-slate-300">
+            Complete route loaded: {route.length} stops
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
