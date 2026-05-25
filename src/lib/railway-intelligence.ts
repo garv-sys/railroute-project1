@@ -41,6 +41,11 @@ export const stations = [
   ...SUPPLEMENTAL_STATIONS.filter((extra) => !(STATIONS as Station[]).some((station) => station.code === extra.code)),
 ];
 
+const MODERN_STATION_NAMES: Record<string, string> = {
+  ALD: "PRAYAGRAJ JN",
+  ALY: "PRAYAGRAJ RAMBAGH",
+};
+
 export const STATE_BY_CODE: Record<string, string> = {
   NDLS: "Delhi",
   DLI: "Delhi",
@@ -76,6 +81,8 @@ export const STATE_BY_CODE: Record<string, string> = {
   NJP: "West Bengal",
   MAS: "Tamil Nadu",
   MS: "Tamil Nadu",
+  TBM: "Tamil Nadu",
+  TBMS: "Tamil Nadu",
   CBE: "Tamil Nadu",
   MDU: "Tamil Nadu",
   TPJ: "Tamil Nadu",
@@ -102,6 +109,8 @@ export const STATE_BY_CODE: Record<string, string> = {
   DDU: "Uttar Pradesh",
   PRYJ: "Uttar Pradesh",
   BSB: "Uttar Pradesh",
+  ALD: "Uttar Pradesh",
+  ALY: "Uttar Pradesh",
   AGC: "Uttar Pradesh",
   GZB: "Uttar Pradesh",
   SLN: "Uttar Pradesh",
@@ -339,6 +348,9 @@ const STATION_ALIASES: Record<string, string[]> = {
   ddu: ["DDU"],
   deendayal: ["DDU"],
   mughalsarai: ["DDU"],
+  ald: ["PRYJ"],
+  allahabad: ["PRYJ"],
+  allahabadjunction: ["PRYJ"],
   pryj: ["PRYJ"],
   prayagraj: ["PRYJ"],
   patna: ["PNBE", "RJPB", "DNR", "PPTA"],
@@ -346,7 +358,22 @@ const STATION_ALIASES: Record<string, string[]> = {
   mumbai: ["CSMT", "BCT", "LTT", "BDTS"],
   kolkata: ["HWH", "SDAH", "KOAA"],
   chennai: ["MAS", "MS"],
+  tambaram: ["TBM", "TBMS"],
 };
+
+const STATION_BY_CODE = new Map(stations.map((station) => [station.code.toUpperCase(), station]));
+
+const STATION_SEARCH_INDEX = stations.map((station) => {
+  const displayName = MODERN_STATION_NAMES[station.code.toUpperCase()] || station.name;
+  const city = titleCase(displayName.replace(/\bJN\b|\bJUNCTION\b|\bRAILWAY STATION\b/gi, "").trim());
+  return {
+    station,
+    name: normalizeText(displayName),
+    city,
+    cityNormalized: normalizeText(city),
+    code: normalizeText(station.code),
+  };
+});
 
 export const TRAIN_DIRECTORY: TrainDetails[] = [
   {
@@ -396,6 +423,48 @@ export const TRAIN_DIRECTORY: TrainDetails[] = [
       { code: "NDLS", arrival: "08:35", departure: "End", halt: "-", distance: 1384, platform: "3", day: 2 },
     ],
   },
+  {
+    trainNo: "12376",
+    trainName: "JSME TBM SF EXPRESS",
+    type: "Superfast",
+    source: "JSME",
+    destination: "TBM",
+    runningDays: ["Wed"],
+    classes: ["SL", "3A", "2A"],
+    route: [
+      { code: "JSME", arrival: "Start", departure: "13:10", halt: "-", distance: 0, platform: "2", day: 1 },
+      { code: "MDP", arrival: "13:35", departure: "13:37", halt: "2 min", distance: 29, day: 1 },
+      { code: "CRJ", arrival: "14:28", departure: "14:30", halt: "2 min", distance: 86, day: 1 },
+      { code: "ASN", arrival: "15:40", departure: "16:00", halt: "20 min", distance: 111, day: 1 },
+      { code: "JOC", arrival: "16:43", departure: "16:45", halt: "2 min", distance: 148, day: 1 },
+      { code: "PRR", arrival: "17:28", departure: "17:30", halt: "2 min", distance: 187, day: 1 },
+      { code: "CKP", arrival: "19:23", departure: "19:28", halt: "5 min", distance: 306, day: 1 },
+      { code: "ROU", arrival: "20:47", departure: "20:55", halt: "8 min", distance: 407, day: 1 },
+      { code: "JSG", arrival: "22:30", departure: "22:35", halt: "5 min", distance: 508, day: 1 },
+      { code: "SBP", arrival: "23:25", departure: "23:35", halt: "10 min", distance: 557, day: 1 },
+      { code: "BRGA", arrival: "00:17", departure: "00:19", halt: "2 min", distance: 599, day: 2 },
+      { code: "BLGR", arrival: "01:16", departure: "01:21", halt: "5 min", distance: 675, day: 2 },
+      { code: "TIG", arrival: "02:20", departure: "02:30", halt: "10 min", distance: 739, day: 2 },
+      { code: "KSNG", arrival: "02:45", departure: "02:47", halt: "2 min", distance: 752, day: 2 },
+      { code: "MNGD", arrival: "03:53", departure: "03:55", halt: "2 min", distance: 824, day: 2 },
+      { code: "RGDA", arrival: "05:15", departure: "05:20", halt: "5 min", distance: 878, day: 2 },
+      { code: "PVP", arrival: "05:58", departure: "06:00", halt: "2 min", distance: 925, day: 2 },
+      { code: "VBL", arrival: "06:23", departure: "06:25", halt: "2 min", distance: 949, day: 2 },
+      { code: "VZM", arrival: "07:15", departure: "07:20", halt: "5 min", distance: 1002, day: 2 },
+      { code: "VSKP", arrival: "08:35", departure: "08:55", halt: "20 min", distance: 1063, platform: "3", day: 2 },
+      { code: "SLO", arrival: "10:59", departure: "11:00", halt: "1 min", distance: 1214, day: 2 },
+      { code: "RJY", arrival: "11:48", departure: "11:50", halt: "2 min", distance: 1264, day: 2 },
+      { code: "EE", arrival: "13:04", departure: "13:05", halt: "1 min", distance: 1354, day: 2 },
+      { code: "BZA", arrival: "14:35", departure: "14:45", halt: "10 min", distance: 1413, day: 2 },
+      { code: "TEL", arrival: "15:14", departure: "15:15", halt: "1 min", distance: 1445, day: 2 },
+      { code: "OGL", arrival: "16:43", departure: "16:45", halt: "2 min", distance: 1552, day: 2 },
+      { code: "NLR", arrival: "18:08", departure: "18:10", halt: "2 min", distance: 1668, day: 2 },
+      { code: "GDR", arrival: "18:58", departure: "19:00", halt: "2 min", distance: 1706, day: 2 },
+      { code: "SPE", arrival: "19:38", departure: "19:40", halt: "2 min", distance: 1761, day: 2 },
+      { code: "MS", arrival: "21:40", departure: "21:45", halt: "5 min", distance: 1848, day: 2 },
+      { code: "TBM", arrival: "22:25", departure: "End", halt: "-", distance: 1872, day: 2 },
+    ],
+  },
 ];
 
 export function titleCase(value: string) {
@@ -406,7 +475,7 @@ export function titleCase(value: string) {
 }
 
 export function stationByCode(code: string) {
-  return stations.find((station) => station.code.toUpperCase() === code.toUpperCase());
+  return STATION_BY_CODE.get(code.toUpperCase());
 }
 
 export function stationState(code: string) {
@@ -418,15 +487,24 @@ export function stationState(code: string) {
   if (!station) return "India";
 
   const normalizedName = normalizeText(`${station.name} ${stationCityName(station)}`);
+  const normalizedWords = `${station.name} ${stationCityName(station)}`
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
   const match = STATE_KEYWORDS.find(({ keywords }) => {
-    return keywords.some((keyword) => normalizedName.includes(normalizeText(keyword)));
+    return keywords.some((keyword) => {
+      const normalizedKeyword = normalizeText(keyword);
+      if (normalizedKeyword.length <= 4 && !keyword.includes(" ")) return normalizedWords.includes(keyword.toLowerCase());
+      return normalizedName.includes(normalizedKeyword);
+    });
   });
 
   return match?.state || "India";
 }
 
 export function stationCityName(station: Station) {
-  return titleCase(station.name.replace(/\bJN\b|\bJUNCTION\b|\bRAILWAY STATION\b/gi, "").trim());
+  const name = MODERN_STATION_NAMES[station.code.toUpperCase()] || station.name;
+  return titleCase(name.replace(/\bJN\b|\bJUNCTION\b|\bRAILWAY STATION\b/gi, "").trim());
 }
 
 export function stationLabel(station: Station, withCode = true) {
@@ -446,31 +524,28 @@ export function normalizeText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-export function stationMatches(query: string, limit = 40) {
+export function stationMatches(query: string, limit = 18) {
   const normalized = normalizeText(query);
   if (!normalized) return [];
   const isShortCodeLikeQuery = normalized.length <= 3;
-  const aliasCodes = Object.entries(STATION_ALIASES)
-    .filter(([alias]) => alias.includes(normalized) || normalized.includes(alias))
-    .flatMap(([, codes]) => codes);
+  const aliasMatches = Object.entries(STATION_ALIASES).filter(([alias]) => alias.includes(normalized) || normalized.includes(alias));
+  const aliasCodes = aliasMatches.flatMap(([, codes]) => codes);
+  const exactAliasCodes = aliasMatches.filter(([alias]) => normalizeText(alias) === normalized).flatMap(([, codes]) => codes);
 
-  return stations
-    .map((station) => {
-      const name = normalizeText(station.name);
-      const city = normalizeText(stationCityName(station));
-      const code = normalizeText(station.code);
-      const aliasBoost = aliasCodes.includes(station.code) ? 120 : 0;
+  return STATION_SEARCH_INDEX
+    .map(({ station, name, city, cityNormalized, code }) => {
+      const aliasBoost = exactAliasCodes.includes(station.code) ? 620 : aliasCodes.includes(station.code) ? 120 : 0;
       let score = 0;
       score += aliasBoost;
       if (code === normalized) score += 500;
       if (code.startsWith(normalized)) score += 80;
-      if (city.startsWith(normalized)) score += 70;
+      if (cityNormalized.startsWith(normalized)) score += 70;
       if (name.startsWith(normalized)) score += 58;
-      if (!isShortCodeLikeQuery && (city.includes(normalized) || name.includes(normalized))) score += 38;
-      return { station, score };
+      if (!isShortCodeLikeQuery && (cityNormalized.includes(normalized) || name.includes(normalized))) score += 38;
+      return { station, city, score };
     })
     .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score || stationCityName(a.station).localeCompare(stationCityName(b.station)))
+    .sort((a, b) => b.score - a.score || a.city.localeCompare(b.city))
     .slice(0, limit)
     .map((item) => item.station);
 }

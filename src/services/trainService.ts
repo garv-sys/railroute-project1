@@ -632,10 +632,7 @@ export async function checkDirectTrains(source: string, dest: string, date: stri
 
     trains = trains.slice(0, 8); // Keep up to 8 trains for richer presentation options
 
-    const enrichedTrains = [];
-    for (const t of trains) {
-      enrichedTrains.push(await enrichWithLiveAvailability(t, formattedDate, classType));
-    }
+    const enrichedTrains = await Promise.all(trains.map((train) => enrichWithLiveAvailability(train, formattedDate, classType)));
 
     // Filter out inactive trains
     const validEnrichedTrains = enrichedTrains.filter(t => {
@@ -1143,7 +1140,7 @@ export async function findSmartRoutes(source: string, dest: string, date: string
           'BSB':  'Varanasi Junction (BSB)',
           'LKO':  'Lucknow Junction (LKO)',
           'BPL':  'Bhopal Junction (BPL)',
-          'ALD':  'Allahabad Junction (ALD)',
+          'ALD':  'Prayagraj Junction (old ALD)',
           'GZB':  'Ghaziabad Junction (GZB)',
           // Gateway hubs for heritage/mountain routes
           'KLK':  'Kalka Junction (KLK) 🏔️',

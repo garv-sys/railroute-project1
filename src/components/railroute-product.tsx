@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
@@ -63,10 +63,19 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   return data;
 }
 
-function todayIso(offset = 1) {
+function todayIso(offset = 0) {
   const date = new Date();
   date.setDate(date.getDate() + offset);
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function prettyDateLabel(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short" });
 }
 
 function productBg() {
@@ -192,7 +201,12 @@ function StationAutocomplete({
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const matches = useMemo(() => stationMatches(query), [query]);
+  const deferredQuery = useDeferredValue(query);
+  const matches = useMemo(() => stationMatches(deferredQuery), [deferredQuery]);
+
+  useEffect(() => {
+    setActive(0);
+  }, [deferredQuery]);
 
   function select(station: Station) {
     setValue(station.code);
@@ -270,6 +284,40 @@ function StationAutocomplete({
   );
 }
 
+function DateQuickField({ date, setDate }: { date: string; setDate: (value: string) => void }) {
+  const options = [
+    ["Today", todayIso(0)],
+    ["Tomorrow", todayIso(1)],
+    ["Day after", todayIso(2)],
+  ];
+
+  return (
+    <label className="block">
+      <span className="mb-2 flex items-center justify-between gap-3">
+        <span className="text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">Date</span>
+        <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500">{prettyDateLabel(date)}</span>
+      </span>
+      <input type="date" min={todayIso(0)} value={date} onChange={(event) => setDate(event.target.value)} className="h-13 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-950 outline-none focus:border-cyan-400 dark:border-white/10 dark:bg-white/8 dark:text-white" />
+      <div className="mt-2 flex flex-wrap gap-2">
+        {options.map(([label, value]) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => setDate(value)}
+            className={`rounded-full border px-3 py-1.5 text-[11px] font-black transition ${
+              date === value
+                ? "border-cyan-300 bg-cyan-100 text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100"
+                : "border-slate-200 bg-white/80 text-slate-500 hover:border-cyan-300 dark:border-white/10 dark:bg-white/6 dark:text-slate-400"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </label>
+  );
+}
+
 function QuickSearch({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
   const [source, setSource] = useState("");
@@ -322,10 +370,7 @@ function QuickSearch({ compact = false }: { compact?: boolean }) {
         <StationAutocomplete label="To" placeholder="End Point" example="Jaipur (Rajasthan)" value={destination} setValue={setDestination} query={destinationQuery} setQuery={setDestinationQuery} />
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-        <label className="block">
-          <span className="mb-2 block text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">Date</span>
-          <input type="date" min={todayIso(0)} value={date} onChange={(event) => setDate(event.target.value)} className="h-13 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-950 outline-none focus:border-cyan-400 dark:border-white/10 dark:bg-white/8 dark:text-white" />
-        </label>
+        <DateQuickField date={date} setDate={setDate} />
         <label className="block">
           <span className="mb-2 block text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">Class</span>
           <select value={classType} onChange={(event) => setClassType(event.target.value)} className="h-13 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-950 outline-none focus:border-cyan-400 dark:border-white/10 dark:bg-[#111827] dark:text-white">
@@ -737,13 +782,15 @@ function TrainResultsWorkspace() {
     try {
       const direct = await postJson<any>("/api/train-between", payload);
       let splits: any[] = [];
-      try {
-        const splitData = await postJson<any>("/api/search-split", { ...payload, directTrains: direct.trains || [] });
-        splits = splitData.splitRoutes || [];
-      } catch {
-        splits = [];
+      if (allowSplit) {
+        try {
+          const splitData = await postJson<any>("/api/search-split", { ...payload, directTrains: direct.trains || [] });
+          splits = splitData.splitRoutes || [];
+        } catch {
+          splits = [];
+        }
+        if (!splits.length) splits = buildFallbackSplits(payload.source, payload.destination, direct.trains || []);
       }
-      if (!splits.length) splits = buildFallbackSplits(payload.source, payload.destination, direct.trains || []);
       setState({ loading: false, error: "", trains: direct.trains || [], splits });
     } catch (error) {
       setState({ loading: false, error: error instanceof Error ? error.message : "Train search failed.", trains: [], splits: [] });
@@ -760,7 +807,7 @@ function TrainResultsWorkspace() {
             <StationAutocomplete label="To" placeholder="End Point" example="Jaipur (Rajasthan)" value={destination} setValue={setDestination} query={destinationQuery} setQuery={setDestinationQuery} />
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-            <input type="date" min={todayIso(0)} value={date} onChange={(event) => setDate(event.target.value)} className="h-13 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold dark:border-white/10 dark:bg-white/8 dark:text-white" />
+            <DateQuickField date={date} setDate={setDate} />
             <select value={classType} onChange={(event) => setClassType(event.target.value)} className="h-13 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold dark:border-white/10 dark:bg-[#111827] dark:text-white">{["Any", ...classOptions].map((item) => <option key={item}>{item}</option>)}</select>
             <button className="flex h-13 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white dark:bg-white dark:text-slate-950">{state.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}Search</button>
           </div>

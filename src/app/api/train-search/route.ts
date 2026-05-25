@@ -6,7 +6,6 @@ import {
   stationByCode,
   stationLabelFromCode,
   stationState,
-  titleCase,
   TRAIN_DIRECTORY,
   type RouteStop,
   type TrainDetails,
@@ -66,7 +65,7 @@ function enrich(train: TrainDetails) {
       const station = stationByCode(stop.code);
       return {
         ...stop,
-        stationName: station ? titleCase(station.name) : stop.code,
+        stationName: station ? stationLabelFromCode(stop.code, false) : stop.code,
         state: stationState(stop.code),
         label: stationLabelFromCode(stop.code),
       };
@@ -110,4 +109,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
-
