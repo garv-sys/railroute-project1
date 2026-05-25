@@ -35,6 +35,7 @@ import {
   stationMatches,
   stationState,
   STATION_COORDS,
+  titleCase,
   type Station,
 } from "@/lib/railway-intelligence";
 
@@ -206,6 +207,27 @@ function splitTotalDuration(split: any) {
   const leg2 = durationToMinutes(split.leg2?.duration);
   const layover = Math.round(Number(split.layoverHours || 0) * 60) || durationToMinutes(split.layoverDuration);
   return split.totalDuration || formatDurationLong(leg1 + layover + leg2);
+}
+
+function fullStationLabelFromCode(code: unknown, withCode = true) {
+  const cleanCode = String(code || "").toUpperCase();
+  const station = stationByCode(cleanCode);
+  if (!station) return cleanCode || "--";
+  const overrides: Record<string, string> = {
+    ALD: "Prayagraj Junction",
+    DDU: "Pt Deen Dayal Upadhyaya Junction",
+    PRYJ: "Prayagraj Junction",
+  };
+  const name = overrides[cleanCode] || titleCase(station.name.replace(/\bRAILWAY STATION\b/gi, "").trim());
+  const state = stationState(cleanCode);
+  const label = state === "India" ? name : `${name} (${state})`;
+  return withCode ? `${label} — ${cleanCode}` : label;
+}
+
+function trainNumberName(train: any, fallback = "Train details") {
+  const number = String(train?.trainNo || train?.train_no || train?.trainNumber || "").trim();
+  const name = String(train?.trainName || train?.train_name || fallback).trim().toUpperCase();
+  return number ? `${number} · ${name}` : name;
 }
 
 function compatibleCoaches(classType: string) {
@@ -1039,7 +1061,7 @@ function StationCodeLookup() {
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-black/20">
             {station ? (
               <>
-                <div className="text-lg font-black">{stationLabel(station)}</div>
+                <div className="text-lg font-black">{fullStationLabelFromCode(station.code)}</div>
                 <div className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">State: {stationLookupState === "India" ? "Unavailable" : stationLookupState} · Code: {station.code}</div>
               </>
             ) : normalized ? (
@@ -1055,15 +1077,28 @@ function StationCodeLookup() {
 }
 
 function buildFallbackSplits(source: string, destination: string, directTrains: any[]) {
-  const hubs = source === "PNBE" || source === "DNR" ? ["DDU", "CNB", "NDLS", "NGP"] : ["NDLS", "CNB", "DDU", "NGP"];
+  const destinationHubs: Record<string, string[]> = {
+    MAO: ["DDU", "NGP", "BPL", "KYN"],
+    VSG: ["DDU", "NGP", "BPL", "KYN"],
+    SBC: ["DDU", "CNB", "NGP", "SC"],
+    BNC: ["DDU", "CNB", "NGP", "SC"],
+    SMVB: ["DDU", "CNB", "NGP", "SC"],
+    JP: ["DDU", "CNB", "NDLS", "AII"],
+  };
+  const hubs = destinationHubs[destination] || (source === "PNBE" || source === "DNR" ? ["DDU", "CNB", "NDLS", "NGP"] : ["NDLS", "CNB", "DDU", "NGP"]);
   return hubs
     .filter((hub) => hub !== source && hub !== destination)
     .slice(0, 3)
     .map((hub, index) => {
       const first = directTrains[index % Math.max(1, directTrains.length)] || {};
+      const sourceName = fullStationLabelFromCode(source, false).replace(/\s*\(.+?\)/, "");
+      const hubName = fullStationLabelFromCode(hub, false).replace(/\s*\(.+?\)/, "");
+      const destinationName = fullStationLabelFromCode(destination, false).replace(/\s*\(.+?\)/, "");
+      const leg1Number = first.trainNo || `SP${index + 1}01`;
+      const leg2Number = `SP${index + 1}02`;
       const leg1 = {
-        trainName: index === 0 ? "INTERCITY CONNECT" : first.trainName || "RAIL CONNECT",
-        trainNo: `SP${index + 1}01`,
+        trainName: first.trainName ? `${first.trainName} · split leg to ${hubName}` : `${sourceName} - ${hubName} optimal connector`,
+        trainNo: leg1Number,
         source,
         destination: hub,
         departureTime: first.departureTime || "08:10",
@@ -1073,8 +1108,8 @@ function buildFallbackSplits(source: string, destination: string, directTrains: 
         availability: "AVL 24",
       };
       const leg2 = {
-        trainName: destination === "SBC" || destination === "BNC" ? "SANGHAMITRA CONNECT" : "RAJDHANI CONNECT",
-        trainNo: `SP${index + 1}02`,
+        trainName: `${hubName} - ${destinationName} onward connector`,
+        trainNo: leg2Number,
         source: hub,
         destination,
         departureTime: index === 0 ? "18:05" : "20:15",
@@ -1087,7 +1122,7 @@ function buildFallbackSplits(source: string, destination: string, directTrains: 
         leg1,
         leg2,
         hubStation: hub,
-        hubStationName: stationLabelFromCode(hub),
+        hubStationName: fullStationLabelFromCode(hub),
         layoverDuration: index === 0 ? "1h 20m" : "1h 55m",
         layoverHours: index === 0 ? 1.33 : 1.92,
         totalFare: 1900 + index * 140,
@@ -1160,12 +1195,12 @@ function PremiumTrainCard({ train, onClass }: { train: any; onClass: (classCode:
             <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">Direct train</span>
             <span className="rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">{train.punctualityScore || "Live ETA ready"}</span>
           </div>
-          <h3 className="mt-4 text-2xl font-black">{train.trainName}</h3>
-          <p className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">#{train.trainNo} · {train.trainType || "Express"}</p>
+          <h3 className="mt-4 text-2xl font-black">{trainNumberName(train)}</h3>
+          <p className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">{train.trainType || "Express"} · {fullStationLabelFromCode(train.source)} to {fullStationLabelFromCode(train.destination)}</p>
           <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-3 rounded-3xl bg-slate-50 p-4 dark:bg-black/20">
-            <div><div className="text-3xl font-black">{train.departureTime || "--:--"}</div><div className="mt-1 text-xs font-black text-emerald-600 dark:text-emerald-200">{stationLabelFromCode(train.source, false)}</div></div>
+            <div><div className="text-3xl font-black">{train.departureTime || "--:--"}</div><div className="mt-1 text-xs font-black text-emerald-600 dark:text-emerald-200">{fullStationLabelFromCode(train.source)}</div></div>
             <div className="min-w-28 text-center"><div className="text-xs font-black text-slate-500">{train.duration || "N/A"}</div><div className="my-2 h-px bg-gradient-to-r from-emerald-400 via-cyan-400 to-rose-400" /><div className="text-[11px] font-bold text-slate-400">route</div></div>
-            <div className="text-right"><div className="text-3xl font-black">{train.arrivalTime || "--:--"}</div><div className="mt-1 text-xs font-black text-rose-600 dark:text-rose-200">{stationLabelFromCode(train.destination, false)}</div></div>
+            <div className="text-right"><div className="text-3xl font-black">{train.arrivalTime || "--:--"}</div><div className="mt-1 text-xs font-black text-rose-600 dark:text-rose-200">{fullStationLabelFromCode(train.destination)}</div></div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" onClick={() => setRouteOpen((value) => !value)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 transition hover:border-cyan-400 hover:text-cyan-700 dark:border-white/10 dark:bg-white/6 dark:text-slate-200">
@@ -1332,8 +1367,11 @@ function SplitJourneyCard({ split }: { split: any }) {
     <article className={softPanel("rounded-[30px] p-5")}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <span className="rounded-full bg-violet-100 px-3 py-1 text-[11px] font-black text-violet-800 dark:bg-violet-300/12 dark:text-violet-100">Split journey</span>
-          <h3 className="mt-3 text-2xl font-black">{stationLabelFromCode(split.leg1?.source || "PNBE", false)} → {stationLabelFromCode(split.hubStation || "NDLS", false)} → {stationLabelFromCode(split.leg2?.destination || "JP", false)}</h3>
+          <span className="rounded-full bg-violet-100 px-3 py-1 text-[11px] font-black text-violet-800 dark:bg-violet-300/12 dark:text-violet-100">Optimal split journey</span>
+          <h3 className="mt-3 text-2xl font-black">{fullStationLabelFromCode(split.leg1?.source || "PNBE")} → {fullStationLabelFromCode(split.hubStation || "NDLS")} → {fullStationLabelFromCode(split.leg2?.destination || "JP")}</h3>
+          <p className="mt-2 text-sm font-bold text-slate-500 dark:text-slate-400">
+            Leg 1: {trainNumberName(leg1, "Leg 1 train")} · Leg 2: {trainNumberName(leg2, "Leg 2 train")}
+          </p>
         </div>
         <div className="rounded-2xl bg-slate-50 p-4 text-sm font-black dark:bg-black/20">
           <div className="text-[11px] uppercase text-slate-400">Final cost</div>
@@ -1344,6 +1382,7 @@ function SplitJourneyCard({ split }: { split: any }) {
       <div className="mt-4 flex flex-wrap gap-2">
         <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">Journey 1 rate: {formatFare(leg1Fare)}</span>
         <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">Journey 2 rate: {formatFare(leg2Fare)}</span>
+        <span className="rounded-full bg-violet-100 px-3 py-2 text-xs font-black text-violet-800 dark:bg-violet-300/12 dark:text-violet-100">Layover time: {split.layoverDuration || "--"}</span>
         <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">Total journey: {totalDuration}</span>
         <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white dark:bg-white dark:text-slate-950">Connect to IRCTC</a>
       </div>
@@ -1352,13 +1391,13 @@ function SplitJourneyCard({ split }: { split: any }) {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm text-slate-500">Split journey 1</div>
-              <h4 className="mt-1 text-lg font-black">{leg1.trainName || "Leg 1 train"}</h4>
-              <div className="mt-1 text-xs font-black text-slate-400">#{leg1.trainNo || "--"}</div>
+              <h4 className="mt-1 text-lg font-black">{trainNumberName(leg1, "Leg 1 train")}</h4>
+              <div className="mt-1 text-xs font-black text-slate-400">{fullStationLabelFromCode(leg1.source || "PNBE")} → {fullStationLabelFromCode(leg1.destination || split.hubStation || "CNB")}</div>
             </div>
             <span className="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">{formatFare(leg1Fare)}</span>
           </div>
           <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-black dark:bg-black/20">
-            {stationLabelFromCode(leg1.source || "PNBE", false)} {leg1.departureTime || "--:--"} → {stationLabelFromCode(leg1.destination || split.hubStation || "CNB", false)} {leg1.arrivalTime || "--:--"}
+            {fullStationLabelFromCode(leg1.source || "PNBE")} {leg1.departureTime || "--:--"} → {fullStationLabelFromCode(leg1.destination || split.hubStation || "CNB")} {leg1.arrivalTime || "--:--"}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold text-slate-500">Duration {leg1.duration || "--"}</span>
@@ -1370,24 +1409,24 @@ function SplitJourneyCard({ split }: { split: any }) {
           </div>
         </div>
         <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-300/20 dark:bg-violet-300/10">
-          <div className="text-sm text-slate-500">Platform change</div>
-          <b>5 → 10</b>
-          <br />
-          <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">8 minutes · use foot overbridge</span>
+          <div className="text-sm text-slate-500">Layover section</div>
+          <div className="mt-1 text-3xl font-black">{split.layoverDuration || "--"}</div>
+          <div className="mt-2 text-sm font-semibold text-slate-500 dark:text-slate-400">Connection at {fullStationLabelFromCode(split.hubStation || leg1.destination || leg2.source || "CNB")}</div>
           <div className="mt-3 text-xs font-black text-violet-700 dark:text-violet-100">Layover window: {leg1.arrivalTime || "--:--"} to {leg2.departureTime || "--:--"}</div>
+          <div className="mt-3 text-xs font-bold text-slate-500 dark:text-slate-300">Platform change: 5 → 10 · walking estimate 8 minutes · use foot overbridge</div>
           <div className="mt-3 rounded-2xl bg-white/70 p-3 text-xs font-black text-violet-800 dark:bg-black/20 dark:text-violet-100">Full journey time: {totalDuration}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm text-slate-500">Split journey 2</div>
-              <h4 className="mt-1 text-lg font-black">{leg2.trainName || "Leg 2 train"}</h4>
-              <div className="mt-1 text-xs font-black text-slate-400">#{leg2.trainNo || "--"}</div>
+              <h4 className="mt-1 text-lg font-black">{trainNumberName(leg2, "Leg 2 train")}</h4>
+              <div className="mt-1 text-xs font-black text-slate-400">{fullStationLabelFromCode(leg2.source || split.hubStation || "CNB")} → {fullStationLabelFromCode(leg2.destination || "SBC")}</div>
             </div>
             <span className="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">{formatFare(leg2Fare)}</span>
           </div>
           <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-black dark:bg-black/20">
-            {stationLabelFromCode(leg2.source || split.hubStation || "CNB", false)} {leg2.departureTime || "--:--"} → {stationLabelFromCode(leg2.destination || "SBC", false)} {leg2.arrivalTime || "--:--"}
+            {fullStationLabelFromCode(leg2.source || split.hubStation || "CNB")} {leg2.departureTime || "--:--"} → {fullStationLabelFromCode(leg2.destination || "SBC")} {leg2.arrivalTime || "--:--"}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold text-slate-500">Duration {leg2.duration || "--"}</span>
