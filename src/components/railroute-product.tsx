@@ -160,6 +160,16 @@ function formatFare(value: unknown) {
   return text.startsWith("₹") ? text : `₹${text}`;
 }
 
+function estimatedClassFare(classCode: string, trainFare: unknown) {
+  const existing = Number(String(trainFare || "").replace(/[^\d.]/g, ""));
+  if (existing > 0) {
+    const multipliers: Record<string, number> = { SL: 0.42, "3E": 0.78, "3A": 1, "2A": 1.45, "1A": 2.35, CC: 0.72, EC: 1.45 };
+    return formatFare(Math.max(120, Math.round(existing * (multipliers[classCode] || 1))));
+  }
+  const base: Record<string, number> = { SL: 420, "3E": 990, "3A": 1280, "2A": 1860, "1A": 3180, CC: 740, EC: 1480 };
+  return formatFare(base[classCode] || 1280);
+}
+
 function compatibleCoaches(classType: string) {
   if (classType === "1A") return ["H1", "H2", "HA1"];
   if (classType === "2A") return ["A1", "A2", "HA1"];
@@ -394,6 +404,7 @@ function QuickSearch({ compact = false }: { compact?: boolean }) {
   const [classType, setClassType] = useState("3A");
   const [error, setError] = useState("");
   const [swap, setSwap] = useState(false);
+  const [trainQuery, setTrainQuery] = useState("");
 
   function swapStations() {
     setSwap(true);
@@ -420,6 +431,16 @@ function QuickSearch({ compact = false }: { compact?: boolean }) {
       return;
     }
     router.push(`/trains?source=${resolvedSource}&destination=${resolvedDestination}&date=${date}&classType=${classType}`);
+  }
+
+  function submitTrainLookup() {
+    const cleanQuery = trainQuery.trim();
+    if (!cleanQuery) {
+      setError("Enter a train number or train name.");
+      return;
+    }
+    setError("");
+    router.push(`/train-search?query=${encodeURIComponent(cleanQuery)}`);
   }
 
   return (
@@ -452,6 +473,30 @@ function QuickSearch({ compact = false }: { compact?: boolean }) {
         </button>
       </div>
       {error && <p className="mt-3 rounded-2xl border border-rose-300/40 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 dark:bg-rose-400/10 dark:text-rose-100">{error}</p>}
+      <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50/80 p-3 dark:border-white/10 dark:bg-black/20">
+        <div className="mb-2 text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">Search by train number or name</div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative flex-1">
+            <Train className="pointer-events-none absolute left-4 top-4 h-4 w-4 text-cyan-600 dark:text-cyan-200" />
+            <input
+              value={trainQuery}
+              onChange={(event) => setTrainQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitTrainLookup();
+                }
+              }}
+              placeholder="12376, Rajdhani, Vande Bharat"
+              className="h-13 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm font-bold text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-400 dark:border-white/10 dark:bg-white/8 dark:text-white dark:placeholder:text-slate-500"
+            />
+          </div>
+          <button type="button" onClick={submitTrainLookup} className="flex h-13 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-900 transition hover:border-cyan-300 dark:border-white/10 dark:bg-white/8 dark:text-white">
+            <Search className="h-4 w-4" />
+            Lookup Train
+          </button>
+        </div>
+      </div>
     </motion.form>
   );
 }
@@ -1132,19 +1177,21 @@ function ClassDetailModal({ train, classCode, journeyDate, onClose }: { train: a
     postJson<any>("/api/fare", { trainNo: train.trainNo, source, destination, date: journeyDate, classType: classCode }).then((fareData) => {
       if (!mounted) return;
       const firstAvailability = fareData?.availability?.data?.availability?.[0] || fareData?.availability?.availability?.[0] || fallbackAvailability;
+      const providerError = fareData?.availability?.success === false ? fareData?.availability?.error : fareData?.fareEnquiry?.success === false ? fareData?.fareEnquiry?.error : "";
       const fareValue = fareData?.fare || firstAvailability?.fare || fallbackAvailability?.fare || "";
+      const providerStatus = firstAvailability?.availabilityText || firstAvailability?.text || firstAvailability?.status || providerError || fallbackAvailability?.text || train.availability;
       setClassState({
         loading: false,
-        error: "",
-        fare: fareValue ? `₹${String(fareValue).replace(/^₹/, "")}` : train.fare || "Fare on enquiry",
-        availability: readableRailStatus(firstAvailability?.availabilityText || firstAvailability?.text || firstAvailability?.status || fallbackAvailability?.text || train.availability) || "Check seats",
+        error: providerError ? "IRCTC returned this class/date as unavailable. Recheck before booking." : "",
+        fare: fareValue ? `₹${String(fareValue).replace(/^₹/, "")}` : estimatedClassFare(classCode, train.fare),
+        availability: readableRailStatus(providerStatus) || "Check seats",
       });
     }).catch(() => {
       if (!mounted) return;
       setClassState({
         loading: false,
         error: "Live class data unavailable. Showing cached estimate.",
-        fare: fallbackAvailability?.fare ? `₹${fallbackAvailability.fare}` : train.fare || "Fare on enquiry",
+        fare: fallbackAvailability?.fare ? `₹${fallbackAvailability.fare}` : estimatedClassFare(classCode, train.fare),
         availability: readableRailStatus(fallbackAvailability?.text || train.availability) || "Check seats",
       });
     });

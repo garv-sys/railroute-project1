@@ -8,6 +8,7 @@ export type Station = {
 
 export type RouteStop = {
   code: string;
+  stationName?: string;
   arrival: string;
   departure: string;
   halt: string;
