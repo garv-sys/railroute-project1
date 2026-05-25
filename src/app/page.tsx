@@ -1,5 +1,5 @@
-import { RailRouteLandingPage } from "@/components/railroute-super-app";
+import { RailRouteHomePage } from "@/components/railroute-product";
 
 export default function HomePage() {
-  return <RailRouteLandingPage />;
+  return <RailRouteHomePage />;
 }
