@@ -835,27 +835,44 @@ export function RailRouteHomePage() {
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-7xl gap-6 px-4 py-12 sm:px-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <IndiaMapShowcase />
-        <div className="grid gap-4 sm:grid-cols-2">
+      <section className="relative z-10 mx-auto -mt-12 max-w-7xl px-4 pb-14 sm:px-6">
+        <div className="overflow-hidden rounded-[34px] border border-white/10 bg-slate-950/95 p-5 text-white shadow-2xl shadow-slate-950/30 backdrop-blur-2xl sm:p-6">
+          <div className="flex flex-col gap-3 border-b border-white/10 pb-5 md:flex-row md:items-end md:justify-between">
+            <div>
+              <span className="text-xs font-black uppercase text-cyan-200">Quick utility cockpit</span>
+              <h2 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Railway tools that actually move the journey forward.</h2>
+            </div>
+            <p className="max-w-md text-sm font-semibold leading-6 text-slate-400">
+              Direct access to live status, ticket checks, seats, fares, coaches, platforms and split planning.
+            </p>
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            ["Live Train", Radio],
-            ["PNR", ShieldCheck],
-            ["Route Explorer", Route],
-            ["Coach Explorer", Train],
-            ["Seat Intelligence", WalletCards],
-            ["Platform Change Intelligence", Compass],
-            ["Split Journey Planner", ArrowDownUp],
-          ].map(([title, Icon]) => {
+            ["Live Train Status", "/live", Radio, "ETA, delay and next station"],
+            ["PNR Status", "/pnr", ShieldCheck, "Chart and passenger status"],
+            ["Train Route", "/route", Route, "Complete station timeline"],
+            ["Coach Layout", "/coach", Train, "Berth and coach map"],
+            ["Seat Availability", "/trains", WalletCards, "Class-wise live quota"],
+            ["Fare Calculator", "/fare", IndianRupee, "Route and class pricing"],
+            ["Platform Prediction", "/live", Compass, "Platform and transfer risk"],
+            ["Split Journey Planner", "/trains", ArrowDownUp, "Smart two-leg options"],
+          ].map(([title, href, Icon, body]) => {
             const I = Icon as typeof Radio;
             return (
-              <div key={String(title)} className={softPanel("rounded-[26px] p-5")}>
-                <I className="h-5 w-5 text-cyan-600 dark:text-cyan-200" />
-                <h3 className="mt-4 text-lg font-black">{String(title)}</h3>
-                <p className="mt-2 text-sm font-semibold leading-6 text-slate-500 dark:text-slate-400">Production-ready module with loading, fallback and premium interaction states.</p>
-              </div>
+              <Link key={String(title)} href={String(href)} className="group rounded-[26px] border border-white/10 bg-white/[0.055] p-5 shadow-xl shadow-black/10 backdrop-blur-xl transition duration-300 hover:-translate-y-1 hover:border-cyan-200/35 hover:bg-white/[0.09] hover:shadow-cyan-950/30">
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-cyan-100 transition group-hover:border-cyan-200/40 group-hover:bg-cyan-200/15">
+                  <I className="h-5 w-5" />
+                </span>
+                <h3 className="mt-5 text-lg font-black">{String(title)}</h3>
+                <p className="mt-2 text-sm font-semibold leading-6 text-slate-400">{String(body)}</p>
+                <div className="mt-5 flex items-center gap-2 text-xs font-black uppercase text-cyan-200/80">
+                  Open tool
+                  <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-1" />
+                </div>
+              </Link>
             );
           })}
+          </div>
         </div>
       </section>
 
