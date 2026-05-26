@@ -548,7 +548,9 @@ function QuickSearch({ compact = false }: { compact?: boolean }) {
       onSubmit={submit}
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
-      className={softPanel(`w-full rounded-[32px] p-4 sm:p-5 ${compact ? "" : "mx-auto max-w-5xl"}`)}
+      className={compact
+        ? "w-full rounded-[30px] border border-white/15 bg-white/12 p-3 shadow-2xl shadow-black/30 backdrop-blur-2xl sm:p-4"
+        : softPanel("mx-auto w-full max-w-5xl rounded-[32px] p-4 sm:p-5")}
     >
       <div className="grid gap-3 lg:grid-cols-[1fr_auto_1fr] lg:items-end">
         <StationAutocomplete label="From" placeholder="Starting Point" example="Patna (Bihar)" value={source} setValue={setSource} query={sourceQuery} setQuery={setSourceQuery} />
@@ -735,17 +737,23 @@ function IndiaMapShowcase({ source = "PNBE", destination = "JP", via = ["NDLS"] 
 export function RailRouteHomePage() {
   return (
     <ProductShell>
-      <section className="relative overflow-hidden px-4 py-10 sm:px-6 lg:py-16">
-        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.86fr_1.14fr] lg:items-center">
-          <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}>
-            <span className="inline-flex items-center gap-2 rounded-full border border-cyan-300/35 bg-cyan-100 px-4 py-2 text-xs font-black uppercase text-cyan-800 dark:bg-cyan-300/10 dark:text-cyan-100">
+      <section className="relative min-h-[820px] overflow-hidden bg-slate-950 px-4 py-10 text-white sm:px-6 lg:min-h-[860px] lg:py-16">
+        <Image src="/cinematic-train-hero-train.jpg" alt="Cinematic train arriving at a night railway platform" fill priority sizes="100vw" className="object-cover object-center opacity-70" />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(2,6,23,0.94)_0%,rgba(2,6,23,0.82)_36%,rgba(2,6,23,0.45)_66%,rgba(2,6,23,0.76)_100%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_28%,rgba(34,211,238,0.28),transparent_34%),radial-gradient(circle_at_24%_76%,rgba(59,130,246,0.22),transparent_36%)]" />
+        <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-[#050816] to-transparent" />
+        <motion.div className="pointer-events-none absolute left-0 top-24 h-px w-full bg-gradient-to-r from-transparent via-cyan-200/70 to-transparent" animate={{ opacity: [0.15, 0.65, 0.15], x: [-90, 90, -90] }} transition={{ duration: 6.5, repeat: Infinity, ease: "easeInOut" }} />
+
+        <div className="relative z-10 mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.96fr_0.74fr] lg:items-center">
+          <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="max-w-3xl">
+            <span className="inline-flex items-center gap-2 rounded-full border border-cyan-200/25 bg-white/10 px-4 py-2 text-xs font-black uppercase text-cyan-100 shadow-2xl shadow-cyan-950/30 backdrop-blur-xl">
               <Sparkles className="h-3.5 w-3.5" />
               Indian Railways intelligence platform
             </span>
-            <h1 className="mt-7 max-w-4xl text-5xl font-black leading-[1.02] tracking-tight sm:text-7xl">
+            <h1 className="mt-7 max-w-4xl text-5xl font-black leading-[1.02] tracking-tight text-white sm:text-7xl">
               PLAN SMARTER RAILWAY JOURNEYS
             </h1>
-            <p className="mt-6 max-w-2xl text-lg font-semibold leading-8 text-slate-600 dark:text-slate-300">
+            <p className="mt-6 max-w-2xl text-lg font-semibold leading-8 text-slate-200">
               Live train tracking, route intelligence, seat maps, split journeys, fare comparison and platform insights.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
@@ -757,34 +765,74 @@ export function RailRouteHomePage() {
               ].map(([label, href, Icon], index) => {
                 const I = Icon as typeof Search;
                 return (
-                  <Link key={String(label)} href={String(href)} className={`flex h-12 items-center gap-2 rounded-2xl px-5 text-sm font-black transition ${index === 0 ? "bg-slate-950 text-white hover:bg-slate-800 dark:bg-white dark:text-slate-950" : "border border-slate-200 bg-white/70 text-slate-800 hover:bg-white dark:border-white/10 dark:bg-white/8 dark:text-white"}`}>
+                  <Link key={String(label)} href={String(href)} className={`flex h-12 items-center gap-2 rounded-2xl px-5 text-sm font-black transition ${index === 0 ? "bg-white text-slate-950 hover:bg-cyan-50" : "border border-white/15 bg-white/10 text-white backdrop-blur-xl hover:bg-white/16"}`}>
                     <I className="h-4 w-4" />
                     {String(label)}
                   </Link>
                 );
               })}
             </div>
+            <div className="mt-8">
+              <QuickSearch compact />
+            </div>
           </motion.div>
 
-          <motion.div initial={{ opacity: 0, scale: 0.97, x: 20 }} animate={{ opacity: 1, scale: 1, x: 0 }} className="relative min-h-[520px] overflow-hidden rounded-[36px] border border-slate-200 bg-slate-950 shadow-2xl shadow-slate-400/30 dark:border-white/10 dark:shadow-black/40">
-            <Image src="/vande-bharat-hero.jpg" alt="Vande Bharat Express" fill priority sizes="(min-width: 1024px) 56vw, 100vw" className="object-cover opacity-80" />
-            <div className="absolute inset-0 bg-[linear-gradient(110deg,rgba(3,7,18,0.92)_0%,rgba(3,7,18,0.45)_48%,rgba(3,7,18,0.08)_100%)]" />
-            <motion.div className="absolute left-10 right-10 top-16 h-px bg-gradient-to-r from-transparent via-cyan-200 to-transparent" animate={{ opacity: [0.2, 1, 0.2], x: [-40, 40, -40] }} transition={{ duration: 4.2, repeat: Infinity, ease: "easeInOut" }} />
-            <motion.div className="absolute bottom-9 left-7 right-7 rounded-[28px] border border-white/12 bg-white/12 p-4 text-white backdrop-blur-2xl" animate={{ y: [0, -7, 0] }} transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}>
-              <div className="flex items-center gap-3">
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-200 text-slate-950"><Activity className="h-5 w-5" /></span>
+          <motion.div initial={{ opacity: 0, scale: 0.97, x: 20 }} animate={{ opacity: 1, scale: 1, x: 0 }} className="relative hidden min-h-[610px] lg:block">
+            <motion.div className="absolute right-0 top-8 w-[430px] rounded-[34px] border border-white/14 bg-white/12 p-5 shadow-2xl shadow-black/30 backdrop-blur-2xl" animate={{ y: [0, -8, 0] }} transition={{ duration: 6.4, repeat: Infinity, ease: "easeInOut" }}>
+              <div className="flex items-center justify-between">
                 <div>
-                  <div className="font-black">Vande Bharat corridor scan</div>
-                  <div className="text-sm font-semibold text-slate-300">ETA, fare layers, seat intelligence, transfer risk</div>
+                  <div className="text-[11px] font-black uppercase text-cyan-100/80">Live corridor intelligence</div>
+                  <div className="mt-1 text-2xl font-black">PNBE → NDLS</div>
                 </div>
+                <span className="rounded-full bg-emerald-300/18 px-3 py-1 text-xs font-black text-emerald-100">On-time 89%</span>
+              </div>
+              <div className="mt-5 grid grid-cols-3 gap-2">
+                {[
+                  ["ETA", "21:50"],
+                  ["Seats", "AVL 24"],
+                  ["Fare", "₹1,520"],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-2xl border border-white/10 bg-slate-950/36 p-3">
+                    <div className="text-[10px] font-black uppercase text-slate-400">{label}</div>
+                    <div className="mt-1 text-lg font-black">{value}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-5 rounded-3xl border border-white/10 bg-slate-950/34 p-4">
+                <div className="flex items-center justify-between text-xs font-black text-slate-300">
+                  <span>Patna Junction</span>
+                  <span>New Delhi</span>
+                </div>
+                <div className="relative mt-4 h-2 rounded-full bg-white/10">
+                  <motion.div className="absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-emerald-300 via-cyan-300 to-rose-300" animate={{ width: ["36%", "68%", "36%"] }} transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }} />
+                  <motion.span className="absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border-2 border-white bg-cyan-300 shadow-lg shadow-cyan-300/40" animate={{ left: ["34%", "66%", "34%"] }} transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }} />
+                </div>
+                <div className="mt-4 flex items-center gap-2 text-sm font-bold text-slate-300">
+                  <Activity className="h-4 w-4 text-cyan-200" />
+                  Platform risk low · 8 min transfer buffer
+                </div>
+              </div>
+            </motion.div>
+
+            <motion.div className="absolute bottom-12 right-20 w-[360px] rounded-[30px] border border-white/14 bg-slate-950/38 p-5 shadow-2xl shadow-black/30 backdrop-blur-2xl" animate={{ y: [0, 9, 0] }} transition={{ duration: 7.5, repeat: Infinity, ease: "easeInOut" }}>
+              <div className="flex items-center gap-3">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-200 text-slate-950"><Route className="h-5 w-5" /></span>
+                <div>
+                  <div className="font-black">Split journey engine</div>
+                  <div className="text-sm font-semibold text-slate-300">3 alternates · lowest fare found</div>
+                </div>
+              </div>
+              <div className="mt-4 space-y-2">
+                {["Patna → Delhi", "Delhi → Jaipur"].map((item, index) => (
+                  <div key={item} className="flex items-center justify-between rounded-2xl bg-white/8 px-3 py-2 text-sm font-black">
+                    <span>{item}</span>
+                    <span className={index === 0 ? "text-emerald-200" : "text-cyan-200"}>{index === 0 ? "AVL 32" : "RAC 8"}</span>
+                  </div>
+                ))}
               </div>
             </motion.div>
           </motion.div>
         </div>
-      </section>
-
-      <section className="mx-auto max-w-7xl px-4 pb-12 sm:px-6">
-        <QuickSearch />
       </section>
 
       <section className="mx-auto grid max-w-7xl gap-6 px-4 py-12 sm:px-6 lg:grid-cols-[1.1fr_0.9fr]">
