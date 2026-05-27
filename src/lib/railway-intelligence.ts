@@ -355,6 +355,11 @@ const STATION_ALIASES: Record<string, string[]> = {
   pryj: ["PRYJ"],
   prayagraj: ["PRYJ"],
   patna: ["PNBE", "RJPB", "DNR", "PPTA"],
+  chakradharpur: ["CKP"],
+  chakradharpurjn: ["CKP"],
+  chukundpur: ["CKP"],
+  chukundarpur: ["CKP"],
+  ckp: ["CKP"],
   delhi: ["NDLS", "DLI", "NZM", "ANVT"],
   mumbai: ["CSMT", "BCT", "LTT", "BDTS"],
   kolkata: ["HWH", "SDAH", "KOAA"],
@@ -571,7 +576,7 @@ export function buildCoachSeats(classType: string, coach = "B1") {
   const normalizedClass = classType === "3E" ? "3A" : classType;
   const count = isChair ? 56 : normalizedClass === "1A" ? 18 : normalizedClass === "2A" ? 46 : 72;
 
-  return Array.from({ length: Math.min(count, normalizedClass === "1A" ? 18 : 40) }, (_, index) => {
+  return Array.from({ length: count }, (_, index) => {
     const number = index + 1;
     const state = number % 11 === 0 ? "WL" : number % 7 === 0 ? "RAC" : number % 5 === 0 ? "booked" : "available";
     let berth = `${number}${number % 2 ? "W" : "A"}`;

@@ -14,7 +14,6 @@ import {
   IndianRupee,
   Loader2,
   MapPin,
-  Radio,
   Route,
   Search,
   ShieldCheck,
@@ -43,7 +42,6 @@ type ToolKind = "trains" | "live" | "pnr" | "fare" | "map" | "route" | "coach" |
 
 const toolNav: { href: string; label: string; tool: ToolKind }[] = [
   { href: "/trains", label: "Trains", tool: "trains" },
-  { href: "/live", label: "Live", tool: "live" },
   { href: "/pnr", label: "PNR", tool: "pnr" },
   { href: "/route", label: "Route", tool: "route" },
   { href: "/coach", label: "Coach", tool: "coach" },
@@ -108,6 +106,16 @@ function prettyDateLabel(value: string) {
   return date.toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short" });
 }
 
+function timeAmPm(value: unknown) {
+  const match = String(value || "").match(/(\d{1,2}):(\d{2})/);
+  if (!match) return String(value || "--");
+  const hours = Number(match[1]);
+  const minutes = match[2];
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 || 12;
+  return `${displayHour}:${minutes} ${suffix}`;
+}
+
 function useDebouncedValue<T>(value: T, delayMs = 500) {
   const [debounced, setDebounced] = useState(value);
 
@@ -130,7 +138,8 @@ function softPanel(extra = "") {
 function readableRailStatus(value: unknown) {
   const text = String(value || "").trim();
   if (!text) return "";
-  if (/live fetch failed/i.test(text)) return "Live quota unavailable";
+  if (/live fetch failed/i.test(text)) return "Quota unavailable";
+  if (/checking|check seats on irctc/i.test(text)) return "Tap for quota";
   return text;
 }
 
@@ -165,6 +174,34 @@ function availabilityTone(value: unknown) {
   return "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-slate-200";
 }
 
+function availabilityCardTone(value: unknown) {
+  const status = readableRailStatus(value).toUpperCase();
+  if (/\bAVAILABLE\b|\bAVL\b|CNF|CONFIRM/.test(status)) {
+    return "border-emerald-300 bg-emerald-100 text-emerald-900 dark:border-emerald-300/30 dark:bg-emerald-300/14 dark:text-emerald-50";
+  }
+  if (/RAC/.test(status)) {
+    return "border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-300/30 dark:bg-amber-300/14 dark:text-amber-50";
+  }
+  if (/WL|WAIT|REGRET|UNAVAILABLE|NOT RUNNING/.test(status)) {
+    return "border-rose-300 bg-rose-100 text-rose-900 dark:border-rose-300/30 dark:bg-rose-300/14 dark:text-rose-50";
+  }
+  return "border-slate-200 bg-white text-slate-800 dark:border-white/10 dark:bg-white/6 dark:text-slate-100";
+}
+
+function journeyAccentTone(value: unknown) {
+  const status = readableRailStatus(value).toUpperCase();
+  if (/\bAVAILABLE\b|\bAVL\b|CNF|CONFIRM/.test(status)) {
+    return { text: "text-emerald-600 dark:text-emerald-200", line: "bg-emerald-300 dark:bg-emerald-300/60", dot: "bg-emerald-400" };
+  }
+  if (/RAC/.test(status)) {
+    return { text: "text-amber-600 dark:text-amber-200", line: "bg-amber-300 dark:bg-amber-300/60", dot: "bg-amber-400" };
+  }
+  if (/WL|WAIT|REGRET|UNAVAILABLE|NOT RUNNING/.test(status)) {
+    return { text: "text-rose-600 dark:text-rose-200", line: "bg-rose-300 dark:bg-rose-300/60", dot: "bg-rose-400" };
+  }
+  return { text: "text-slate-400", line: "bg-slate-300 dark:bg-white/20", dot: "bg-slate-300" };
+}
+
 function formatFare(value: unknown) {
   const text = String(value || "").trim();
   if (!text || text === "₹--") return "₹--";
@@ -177,6 +214,21 @@ function liveSeatText(train: any) {
 
 function liveFareText(train: any) {
   return formatFare(train?.fare || train?._fare || "");
+}
+
+function primaryClassCode(train: any, fallback = "3A") {
+  return String(train?.classType || train?.classes?.[0] || fallback).toUpperCase();
+}
+
+function classAvailabilityStatus(train: any, classCode: string) {
+  const first = train?.classAvailability?.[classCode]?.[0];
+  const status = first?.availabilityText || first?.text || first?.status || (primaryClassCode(train) === classCode ? train?.availability : "");
+  return readableRailStatus(status) || "Tap for quota";
+}
+
+function classFareText(train: any, classCode: string) {
+  const first = train?.classAvailability?.[classCode]?.[0];
+  return formatFare(first?.fare || estimatedClassFare(classCode, train?.fare || train?._fare));
 }
 
 function fareToNumber(value: unknown) {
@@ -255,13 +307,53 @@ function fullStationLabelFromCode(code: unknown, withCode = true) {
   if (!station) return cleanCode || "--";
   const overrides: Record<string, string> = {
     ALD: "Prayagraj Junction",
+    CKP: "Chakradharpur",
     DDU: "Pt Deen Dayal Upadhyaya Junction",
+    DLI: "Old Delhi",
+    JP: "Jaipur Junction",
+    NDLS: "New Delhi",
+    NZM: "Hazrat Nizamuddin",
     PRYJ: "Prayagraj Junction",
+    TATA: "Tatanagar Junction",
   };
   const name = overrides[cleanCode] || titleCase(station.name.replace(/\bRAILWAY STATION\b/gi, "").trim());
   const state = stationState(cleanCode);
   const label = state === "India" ? name : `${name} (${state})`;
   return withCode ? `${label} — ${cleanCode}` : label;
+}
+
+function stationCompactLabel(code: unknown) {
+  const cleanCode = String(code || "").toUpperCase();
+  const station = stationByCode(cleanCode);
+  if (!station) return cleanCode || "--";
+  const overrides: Record<string, string> = {
+    ALD: "Prayagraj Junction",
+    CKP: "Chakradharpur",
+    DDU: "Pt Deen Dayal Upadhyaya Junction",
+    DLI: "Old Delhi",
+    JP: "Jaipur Junction",
+    NDLS: "New Delhi",
+    NZM: "Hazrat Nizamuddin",
+    PRYJ: "Prayagraj Junction",
+    TATA: "Tatanagar Junction",
+  };
+  const name = overrides[cleanCode] || titleCase(station.name.replace(/\bRAILWAY STATION\b/gi, "").trim());
+  return `${name} (${cleanCode})`;
+}
+
+function expectedPlatformNumber(code: unknown, trainNo?: unknown) {
+  const seed = `${String(code || "")}-${String(trainNo || "")}`;
+  let hash = 0;
+  for (const char of seed) hash = (hash * 31 + char.charCodeAt(0)) % 997;
+  return String((hash % 8) + 1);
+}
+
+function platformText(stop: any, trainNo?: unknown) {
+  const rawPlatform = String(stop?.platform || "").trim();
+  if (rawPlatform && rawPlatform !== "--" && rawPlatform.toUpperCase() !== "TBA") {
+    return { label: "Platform", value: rawPlatform };
+  }
+  return { label: "Expected platform", value: expectedPlatformNumber(stop?.code, trainNo) };
 }
 
 function trainNumberName(train: any, fallback = "Train details") {
@@ -281,6 +373,43 @@ function compatibleCoaches(classType: string) {
 
 function defaultCoachFor(classType: string) {
   return compatibleCoaches(classType)[0];
+}
+
+const ROUTE_ACCESS_HUBS_BY_STATE: Record<string, string[]> = {
+  Jharkhand: ["TATA", "RNC", "DHN", "ROU", "BKSC"],
+  Odisha: ["ROU", "BBS", "CTC", "SBP", "JSG"],
+  Bihar: ["PNBE", "DNR", "PPTA", "GAYA", "MFP"],
+  Rajasthan: ["JP", "KOTA", "AII", "JU", "BKN"],
+  "West Bengal": ["HWH", "SDAH", "KOAA", "NJP", "ASN"],
+  "Uttar Pradesh": ["DDU", "PRYJ", "CNB", "LKO", "BSB", "GZB"],
+  Delhi: ["NDLS", "NZM", "DLI", "ANVT"],
+  Maharashtra: ["CSMT", "LTT", "BDTS", "KYN", "NGP"],
+  "Madhya Pradesh": ["BPL", "ET", "JBP", "KTE", "GWL"],
+  Gujarat: ["ADI", "BRC", "ST", "RJT"],
+  Karnataka: ["SBC", "YPR", "SMVB", "UBL", "MYS"],
+  "Tamil Nadu": ["MAS", "MS", "TBM", "CBE", "MDU"],
+  Telangana: ["SC", "HYB", "KCG", "WL"],
+  "Andhra Pradesh": ["BZA", "VSKP", "GNT", "TPTY"],
+};
+
+const NATIONAL_ROUTE_ACCESS_HUBS = ["NDLS", "NZM", "DDU", "CNB", "PRYJ", "BPL", "KOTA", "JP", "NGP", "ET", "BZA", "HWH"];
+
+function routeAccessHubs(code: string, fallback: string[] = NATIONAL_ROUTE_ACCESS_HUBS) {
+  const normalized = code.toUpperCase();
+  const state = stationState(normalized);
+  return Array.from(new Set([normalized, ...(ROUTE_ACCESS_HUBS_BY_STATE[state] || []), ...fallback]))
+    .filter((hub) => hub && hub !== normalized && stationByCode(hub))
+    .slice(0, 6);
+}
+
+function shouldShowNearbyOptimizer(source: string, destination: string) {
+  return source.toUpperCase() === "CKP" && destination.toUpperCase() !== "CKP";
+}
+
+function directRouteLimitMinutes(trains: any[]) {
+  const durations = trains.map((train) => durationToMinutes(train.duration)).filter((duration) => duration > 0);
+  if (!durations.length) return Infinity;
+  return Math.max(Math.min(...durations) * 1.75, Math.min(...durations) + 90);
 }
 
 function groupSeatsForClass(classType: string, seats: ReturnType<typeof buildCoachSeats>) {
@@ -388,7 +517,7 @@ function StationAutocomplete({
         <span className="truncate text-[11px] font-semibold text-slate-400 dark:text-slate-500">{example}</span>
       </div>
       <div className="relative">
-        <MapPin className={`pointer-events-none absolute left-4 top-4 h-4 w-4 ${label === "From" ? "text-emerald-500" : "text-rose-500"}`} />
+        <MapPin className={`pointer-events-none absolute left-4 top-4 h-4 w-4 ${label === "From" ? "text-emerald-500" : label === "Via" ? "text-cyan-500" : "text-rose-500"}`} />
         <input
           value={query}
           onChange={(event) => {
@@ -498,8 +627,10 @@ function QuickSearch({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
   const [source, setSource] = useState("");
   const [destination, setDestination] = useState("");
+  const [preferredHub, setPreferredHub] = useState("");
   const [sourceQuery, setSourceQuery] = useState("");
   const [destinationQuery, setDestinationQuery] = useState("");
+  const [preferredHubQuery, setPreferredHubQuery] = useState("");
   const [date, setDate] = useState(todayIso());
   const [classType, setClassType] = useState("3A");
   const [error, setError] = useState("");
@@ -521,6 +652,7 @@ function QuickSearch({ compact = false }: { compact?: boolean }) {
     event.preventDefault();
     const resolvedSource = resolveStationInput(source, sourceQuery);
     const resolvedDestination = resolveStationInput(destination, destinationQuery);
+    const resolvedPreferredHub = resolveStationInput(preferredHub, preferredHubQuery);
 
     if (!resolvedSource || !resolvedDestination) {
       setError("Select both Starting Point and End Point from station search.");
@@ -530,7 +662,16 @@ function QuickSearch({ compact = false }: { compact?: boolean }) {
       setError("Starting Point and End Point cannot be the same.");
       return;
     }
-    router.push(`/trains?source=${resolvedSource}&destination=${resolvedDestination}&date=${date}&classType=${classType}`);
+    const params = new URLSearchParams({
+      source: resolvedSource,
+      destination: resolvedDestination,
+      date,
+      classType,
+    });
+    if (resolvedPreferredHub && resolvedPreferredHub !== resolvedSource && resolvedPreferredHub !== resolvedDestination) {
+      params.set("via", resolvedPreferredHub);
+    }
+    router.push(`/trains?${params.toString()}`);
   }
 
   function submitTrainLookup() {
@@ -573,6 +714,9 @@ function QuickSearch({ compact = false }: { compact?: boolean }) {
           <Search className="h-4 w-4" />
           Search Trains
         </button>
+      </div>
+      <div className="mt-4">
+        <StationAutocomplete label="Via" placeholder="Optional layover city or station" example="Delhi / NDLS" value={preferredHub} setValue={setPreferredHub} query={preferredHubQuery} setQuery={setPreferredHubQuery} />
       </div>
       {error && <p className="mt-3 rounded-2xl border border-rose-300/40 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 dark:bg-rose-400/10 dark:text-rose-100">{error}</p>}
       <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50/80 p-3 dark:border-white/10 dark:bg-black/20">
@@ -715,7 +859,7 @@ function IndiaMapShowcase({ source = "PNBE", destination = "JP", via = ["NDLS"] 
       <div className="pointer-events-none relative z-20 flex min-h-[496px] flex-col justify-between p-3 sm:p-5">
         <div className="max-w-md rounded-3xl border border-slate-200/80 bg-white/88 p-4 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/72">
           <span className="inline-flex rounded-full border border-cyan-300/35 bg-cyan-100 px-3 py-1 text-[11px] font-black uppercase text-cyan-800 dark:bg-cyan-300/10 dark:text-cyan-100">Real OpenStreetMap + railway layer</span>
-          <h3 className="mt-4 text-2xl font-black tracking-tight">Pan, zoom, and inspect the actual India map with station markers and a live route path.</h3>
+          <h3 className="mt-4 text-2xl font-black tracking-tight">Pan, zoom, and inspect the actual India map with station markers and route paths.</h3>
         </div>
         <div className="pointer-events-auto grid gap-2 sm:grid-cols-3">
           {[
@@ -754,12 +898,11 @@ export function RailRouteHomePage() {
               PLAN SMARTER RAILWAY JOURNEYS
             </h1>
             <p className="mt-6 max-w-2xl text-lg font-semibold leading-8 text-slate-200">
-              Live train tracking, route intelligence, seat maps, split journeys, fare comparison and platform insights.
+              Route intelligence, seat maps, split journeys, fare comparison and platform insights.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               {[
                 ["Search Trains", "/trains", Search],
-                ["Live Tracking", "/live", Radio],
                 ["PNR Status", "/pnr", ShieldCheck],
                 ["Coach Layouts", "/coach", Train],
               ].map(([label, href, Icon], index) => {
@@ -781,10 +924,10 @@ export function RailRouteHomePage() {
             <motion.div className="absolute right-0 top-8 w-[430px] rounded-[34px] border border-white/14 bg-white/12 p-5 shadow-2xl shadow-black/30 backdrop-blur-2xl" animate={{ y: [0, -8, 0] }} transition={{ duration: 6.4, repeat: Infinity, ease: "easeInOut" }}>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-[11px] font-black uppercase text-cyan-100/80">Live corridor intelligence</div>
+                  <div className="text-[11px] font-black uppercase text-cyan-100/80">Split corridor intelligence</div>
                   <div className="mt-1 text-2xl font-black">PNBE → NDLS</div>
                 </div>
-                <span className="rounded-full bg-emerald-300/18 px-3 py-1 text-xs font-black text-emerald-100">On-time 89%</span>
+                <span className="rounded-full bg-emerald-300/18 px-3 py-1 text-xs font-black text-emerald-100">AVL-first</span>
               </div>
               <div className="mt-5 grid grid-cols-3 gap-2">
                 {[
@@ -843,21 +986,20 @@ export function RailRouteHomePage() {
               <h2 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Railway tools that actually move the journey forward.</h2>
             </div>
             <p className="max-w-md text-sm font-semibold leading-6 text-slate-400">
-              Direct access to live status, ticket checks, seats, fares, coaches, platforms and split planning.
+              Direct access to ticket checks, seats, fares, coaches, platforms and split planning.
             </p>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            ["Live Train Status", "/live", Radio, "ETA, delay and next station"],
             ["PNR Status", "/pnr", ShieldCheck, "Chart and passenger status"],
             ["Train Route", "/route", Route, "Complete station timeline"],
             ["Coach Layout", "/coach", Train, "Berth and coach map"],
-            ["Seat Availability", "/trains", WalletCards, "Class-wise live quota"],
+            ["Seat Availability", "/trains", WalletCards, "Class-wise quota"],
             ["Fare Calculator", "/fare", IndianRupee, "Route and class pricing"],
-            ["Platform Prediction", "/live", Compass, "Platform and transfer risk"],
+            ["Platform Notes", "/route", Compass, "Expected platform context"],
             ["Split Journey Planner", "/trains", ArrowDownUp, "Smart two-leg options"],
           ].map(([title, href, Icon, body]) => {
-            const I = Icon as typeof Radio;
+            const I = Icon as typeof Route;
             return (
               <Link key={String(title)} href={String(href)} className="group rounded-[26px] border border-white/10 bg-white/[0.055] p-5 shadow-xl shadow-black/10 backdrop-blur-xl transition duration-300 hover:-translate-y-1 hover:border-cyan-200/35 hover:bg-white/[0.09] hover:shadow-cyan-950/30">
                 <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-cyan-100 transition group-hover:border-cyan-200/40 group-hover:bg-cyan-200/15">
@@ -880,7 +1022,7 @@ export function RailRouteHomePage() {
         <div className={softPanel("grid gap-4 rounded-[34px] p-6 md:grid-cols-4")}>
           {[
             ["8,990", "station search index"],
-            ["Live", "IRCTC-compatible APIs"],
+            ["IRCTC", "compatible checks"],
             ["Full", "route timelines"],
             ["Dark + Light", "persistent themes"],
           ].map(([value, label]) => (
@@ -897,11 +1039,11 @@ export function RailRouteHomePage() {
 
 function ToolHeader({ tool }: { tool: ToolKind }) {
   const copy: Record<ToolKind, [string, string]> = {
-    trains: ["Train Search", "Search by stations, train number, or train name with live railway intelligence."],
+    trains: ["Train Search", "Search by stations, train number, or train name with railway intelligence."],
     "train-search": ["Train Number Search", "Full train details, running days, route and complete timetable."],
-    live: ["Live Tracking", "Flight-tracker style live station, ETA, delay and progress intelligence."],
+    live: ["Train Search", "Search direct and split journeys with station intelligence."],
     pnr: ["PNR Status", "Passenger status, chart state and journey summary."],
-    fare: ["Fare Enquiry", "Live fare estimate by train, class, quota and route."],
+    fare: ["Fare Enquiry", "Fare estimate by train, class, quota and route."],
     map: ["India Route Map", "Zoom-friendly India route plotting with markers, split routes and train motion."],
     route: ["Route Details", "Complete station timeline with arrival, departure, halt, platform and distance."],
     coach: ["Coach Explorer", "Interactive berth and seat maps with coach tabs and availability states."],
@@ -996,29 +1138,32 @@ function FullTrainDetails({ train }: { train: any }) {
       </div>
       <div className="border-t border-slate-200 p-5 dark:border-white/10">
         <div className="space-y-0">
-          {route.map((stop: any, index: number) => (
-            <div key={`${stop.code}-${index}`} className="grid grid-cols-[auto_1fr] gap-4">
-              <div className="flex flex-col items-center">
-                <span className={`flex h-8 w-8 items-center justify-center rounded-full border ${index === 0 ? "border-emerald-400 bg-emerald-100 text-emerald-700 dark:bg-emerald-400/12 dark:text-emerald-100" : index === route.length - 1 ? "border-rose-400 bg-rose-100 text-rose-700 dark:bg-rose-400/12 dark:text-rose-100" : "border-cyan-400 bg-cyan-100 text-cyan-700 dark:bg-cyan-400/12 dark:text-cyan-100"}`}>
-                  <Circle className="h-2.5 w-2.5 fill-current" />
-                </span>
-                {index < route.length - 1 && <span className="h-20 w-px bg-slate-200 dark:bg-white/12" />}
-              </div>
-              <div className="pb-6">
-                <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <div className="text-base font-black">{stop.stationName || stationLabelFromCode(stop.code, false)} <span className="text-slate-400">— {stop.code}</span></div>
-                    <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">{stop.state || "India"} · Platform {stop.platform || "TBA"} · {stop.distance} km</div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3 text-sm">
-                    <div><div className="text-[10px] font-black uppercase text-slate-400">Arr</div><div className="font-black">{stop.arrival}</div></div>
-                    <div><div className="text-[10px] font-black uppercase text-slate-400">Dep</div><div className="font-black">{stop.departure}</div></div>
-                    <div><div className="text-[10px] font-black uppercase text-slate-400">Halt</div><div className="font-black">{stop.halt}</div></div>
+          {route.map((stop: any, index: number) => {
+            const platform = platformText(stop, train.trainNo);
+            return (
+              <div key={`${stop.code}-${index}`} className="grid grid-cols-[auto_1fr] gap-4">
+                <div className="flex flex-col items-center">
+                  <span className={`flex h-8 w-8 items-center justify-center rounded-full border ${index === 0 ? "border-emerald-400 bg-emerald-100 text-emerald-700 dark:bg-emerald-400/12 dark:text-emerald-100" : index === route.length - 1 ? "border-rose-400 bg-rose-100 text-rose-700 dark:bg-rose-400/12 dark:text-rose-100" : "border-cyan-400 bg-cyan-100 text-cyan-700 dark:bg-cyan-400/12 dark:text-cyan-100"}`}>
+                    <Circle className="h-2.5 w-2.5 fill-current" />
+                  </span>
+                  {index < route.length - 1 && <span className="h-20 w-px bg-slate-200 dark:bg-white/12" />}
+                </div>
+                <div className="pb-6">
+                  <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="text-base font-black">{stop.stationName || stationLabelFromCode(stop.code, false)} <span className="text-slate-400">— {stop.code}</span></div>
+                      <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">{stop.state || "India"} · {platform.label} {platform.value} · {stop.distance} km</div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div><div className="text-[10px] font-black uppercase text-slate-400">Arr</div><div className="font-black">{stop.arrival}</div></div>
+                      <div><div className="text-[10px] font-black uppercase text-slate-400">Dep</div><div className="font-black">{stop.departure}</div></div>
+                      <div><div className="text-[10px] font-black uppercase text-slate-400">Halt</div><div className="font-black">{stop.halt}</div></div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </article>
@@ -1026,19 +1171,23 @@ function FullTrainDetails({ train }: { train: any }) {
 }
 
 function TrainResultsWorkspace() {
+  const searchRequestId = useRef(0);
+  const [searchKey, setSearchKey] = useState("");
   const [source, setSource] = useState("");
   const [destination, setDestination] = useState("");
+  const [preferredHub, setPreferredHub] = useState("");
   const [sourceQuery, setSourceQuery] = useState("");
   const [destinationQuery, setDestinationQuery] = useState("");
+  const [preferredHubQuery, setPreferredHubQuery] = useState("");
   const [date, setDate] = useState(todayIso());
   const [classType, setClassType] = useState("3A");
   const [allowSplit, setAllowSplit] = useState(true);
-  const [resultMode, setResultMode] = useState<"all" | "direct" | "split">("all");
+  const [resultMode, setResultMode] = useState<"all" | "direct" | "split" | "multi">("all");
   const [availableOnly, setAvailableOnly] = useState(false);
   const [sortBy, setSortBy] = useState<"best" | "cheapest" | "fastest" | "earliest" | "latest">("best");
   const [maxFare, setMaxFare] = useState("");
   const [maxDuration, setMaxDuration] = useState("");
-  const [state, setState] = useState<{ loading: boolean; splitLoading: boolean; error: string; trains: any[]; splits: any[] }>({ loading: false, splitLoading: false, error: "", trains: [], splits: [] });
+  const [state, setState] = useState<{ loading: boolean; splitLoading: boolean; error: string; trains: any[]; splits: any[]; multiSplits: any[] }>({ loading: false, splitLoading: false, error: "", trains: [], splits: [], multiSplits: [] });
   const [classView, setClassView] = useState<{ train: any; classCode: string } | null>(null);
   const [detailTrain, setDetailTrain] = useState<any | null>(null);
   const [compareIds, setCompareIds] = useState<string[]>([]);
@@ -1065,10 +1214,12 @@ function TrainResultsWorkspace() {
   const filteredSplits = useMemo(() => {
     const fareLimit = Number(maxFare) || Infinity;
     const durationLimit = maxDuration ? Number(maxDuration) * 60 : Infinity;
+    const directLimit = directRouteLimitMinutes(filteredTrains);
     return state.splits.filter((split) => {
       const fare = fareToNumber(split.totalFare || split.fare);
       const duration = durationToMinutes(splitTotalDuration(split));
       const seatsOk = isSeatAvailable(split.leg1?.availability) && isSeatAvailable(split.leg2?.availability);
+      if (filteredTrains.length > 0 && duration && duration > directLimit) return false;
       if (availableOnly && !seatsOk) return false;
       if (fare && fare > fareLimit) return false;
       if (duration && duration > durationLimit) return false;
@@ -1078,14 +1229,51 @@ function TrainResultsWorkspace() {
       if (sortBy === "fastest") return (durationToMinutes(splitTotalDuration(a)) || Infinity) - (durationToMinutes(splitTotalDuration(b)) || Infinity);
       return 0;
     });
-  }, [availableOnly, maxDuration, maxFare, sortBy, state.splits]);
+  }, [availableOnly, filteredTrains, maxDuration, maxFare, sortBy, state.splits]);
+  const filteredMultiSplits = useMemo(() => {
+    const fareLimit = Number(maxFare) || Infinity;
+    const durationLimit = maxDuration ? Number(maxDuration) * 60 : Infinity;
+    const directLimit = directRouteLimitMinutes(filteredTrains);
+    return state.multiSplits.filter((split) => {
+      const fare = fareToNumber(split.totalFare);
+      const duration = durationToMinutes(split.totalDuration);
+      const seatsOk = (split.legs || []).every((leg: any) => isSeatAvailable(leg.availability));
+      if (filteredTrains.length > 0 && duration && duration > directLimit) return false;
+      if (availableOnly && !seatsOk) return false;
+      if (fare && fare > fareLimit) return false;
+      if (duration && duration > durationLimit) return false;
+      return true;
+    }).sort((a, b) => {
+      if (sortBy === "cheapest") return (fareToNumber(a.totalFare) || Infinity) - (fareToNumber(b.totalFare) || Infinity);
+      if (sortBy === "fastest") return (durationToMinutes(a.totalDuration) || Infinity) - (durationToMinutes(b.totalDuration) || Infinity);
+      return (b.score || 0) - (a.score || 0);
+    });
+  }, [availableOnly, filteredTrains, maxDuration, maxFare, sortBy, state.multiSplits]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const initialSource = params.get("source") || "";
-    const initialDestination = params.get("destination") || "";
+    function syncFromLocation() {
+      setSearchKey(window.location.search);
+    }
+
+    syncFromLocation();
+    window.addEventListener("popstate", syncFromLocation);
+    window.addEventListener("railroute-search-change", syncFromLocation);
+    return () => {
+      window.removeEventListener("popstate", syncFromLocation);
+      window.removeEventListener("railroute-search-change", syncFromLocation);
+    };
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchKey || window.location.search);
+    const rawInitialSource = params.get("source") || "";
+    const rawInitialDestination = params.get("destination") || "";
+    const initialSource = rawInitialSource ? resolveStationInput("", rawInitialSource) || rawInitialSource.toUpperCase() : "";
+    const initialDestination = rawInitialDestination ? resolveStationInput("", rawInitialDestination) || rawInitialDestination.toUpperCase() : "";
     const initialDate = params.get("date") || todayIso();
     const initialClass = params.get("classType") || "3A";
+    const rawInitialPreferredHub = params.get("via") || params.get("preferredHub") || "";
+    const initialPreferredHub = rawInitialPreferredHub ? resolveStationInput("", rawInitialPreferredHub) || rawInitialPreferredHub.toUpperCase() : "";
     if (initialSource) {
       setSource(initialSource);
       const station = stationByCode(initialSource);
@@ -1096,48 +1284,81 @@ function TrainResultsWorkspace() {
       const station = stationByCode(initialDestination);
       if (station) setDestinationQuery(stationLabel(station));
     }
+    if (initialPreferredHub) {
+      setPreferredHub(initialPreferredHub);
+      const station = stationByCode(initialPreferredHub);
+      setPreferredHubQuery(station ? stationLabel(station) : initialPreferredHub);
+    } else {
+      setPreferredHub("");
+      setPreferredHubQuery("");
+    }
     setDate(initialDate);
     setClassType(initialClass);
+    setResultMode("all");
+    setCompareIds([]);
     if (initialSource && initialDestination) {
-      const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
-      if (navigation?.type === "back_forward") return;
-      window.setTimeout(() => runSearch(undefined, { source: initialSource, destination: initialDestination, date: initialDate, classType: initialClass }), 80);
+      window.setTimeout(() => runSearch(undefined, { source: initialSource, destination: initialDestination, date: initialDate, classType: initialClass, preferredHub: initialPreferredHub }), 80);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchKey]);
 
-  async function runSearch(event?: FormEvent, override?: { source: string; destination: string; date: string; classType: string }) {
+  async function runSearch(event?: FormEvent, override?: { source: string; destination: string; date: string; classType: string; preferredHub?: string }) {
     event?.preventDefault();
+    const resolvedSource = resolveStationInput(source, sourceQuery);
+    const resolvedDestination = resolveStationInput(destination, destinationQuery);
+    const resolvedPreferredHub = resolveStationInput(preferredHub, preferredHubQuery);
     const payload = override || {
-      source: resolveStationInput(source, sourceQuery),
-      destination: resolveStationInput(destination, destinationQuery),
+      source: resolvedSource,
+      destination: resolvedDestination,
       date,
       classType,
+      preferredHub: resolvedPreferredHub && resolvedPreferredHub !== resolvedSource && resolvedPreferredHub !== resolvedDestination ? resolvedPreferredHub : "",
     };
     if (!payload.source || !payload.destination) {
-      setState({ loading: false, splitLoading: false, error: "Choose Starting Point and End Point.", trains: [], splits: [] });
+      searchRequestId.current += 1;
+      setState({ loading: false, splitLoading: false, error: "Choose Starting Point and End Point.", trains: [], splits: [], multiSplits: [] });
       return;
     }
-    setState({ loading: true, splitLoading: allowSplit, error: "", trains: [], splits: [] });
+    const requestId = searchRequestId.current + 1;
+    searchRequestId.current = requestId;
+    if (!override && typeof window !== "undefined") {
+      const params = new URLSearchParams({
+        source: payload.source,
+        destination: payload.destination,
+        date: payload.date,
+        classType: payload.classType,
+      });
+      if (payload.preferredHub) params.set("via", payload.preferredHub);
+      window.history.pushState(null, "", `/trains?${params.toString()}`);
+    }
+    setState({ loading: true, splitLoading: allowSplit, error: "", trains: [], splits: [], multiSplits: [] });
     try {
       const direct = await postJson<any>("/api/train-between", payload);
+      if (requestId !== searchRequestId.current) return;
       const trains = direct.trains || [];
-      setState({ loading: false, splitLoading: allowSplit, error: "", trains, splits: [] });
+      setState({ loading: false, splitLoading: allowSplit, error: "", trains, splits: [], multiSplits: [] });
 
       if (allowSplit) {
         postJson<any>("/api/search-split", { ...payload, directTrains: trains })
           .then((splitData) => {
+            if (requestId !== searchRequestId.current) return;
             const liveSplits = splitData.splitRoutes || [];
-            setState((current) => ({ ...current, splitLoading: false, splits: liveSplits }));
+            const liveMultiSplits = splitData.multiSplitRoutes || [];
+            setState((current) => ({ ...current, splitLoading: false, splits: liveSplits, multiSplits: liveMultiSplits }));
           })
-          .catch(() => setState((current) => ({ ...current, splitLoading: false })));
+          .catch(() => {
+            if (requestId !== searchRequestId.current) return;
+            setState((current) => ({ ...current, splitLoading: false }));
+          });
       }
     } catch (error) {
-      setState({ loading: false, splitLoading: false, error: error instanceof Error ? error.message : "Train search failed.", trains: [], splits: [] });
+      if (requestId !== searchRequestId.current) return;
+      setState({ loading: false, splitLoading: false, error: error instanceof Error ? error.message : "Train search failed.", trains: [], splits: [], multiSplits: [] });
     }
   }
 
   const compareTrains = filteredTrains.filter((train) => compareIds.includes(trainCompareKey(train)));
+  const selectedPreferredHub = resolveStationInput(preferredHub, preferredHubQuery);
 
   return (
     <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6">
@@ -1148,10 +1369,14 @@ function TrainResultsWorkspace() {
             <button type="button" onClick={() => { const a = source; const aq = sourceQuery; setSource(destination); setSourceQuery(destinationQuery); setDestination(a); setDestinationQuery(aq); }} className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 bg-white text-cyan-700 dark:border-white/10 dark:bg-white/8 dark:text-cyan-100"><ArrowDownUp className="h-5 w-5" /></button>
             <StationAutocomplete label="To" placeholder="End Point" example="Jaipur (Rajasthan)" value={destination} setValue={setDestination} query={destinationQuery} setQuery={setDestinationQuery} />
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+          <div className="mt-4 grid gap-3 xl:grid-cols-[1fr_1fr_190px_auto]">
             <DateQuickField date={date} setDate={setDate} />
-            <select value={classType} onChange={(event) => setClassType(event.target.value)} className="h-13 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold dark:border-white/10 dark:bg-[#111827] dark:text-white">{["Any", ...classOptions].map((item) => <option key={item}>{item}</option>)}</select>
-            <button className="flex h-13 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white dark:bg-white dark:text-slate-950">
+            <StationAutocomplete label="Via" placeholder="Optional layover station" example="Delhi / NDLS" value={preferredHub} setValue={setPreferredHub} query={preferredHubQuery} setQuery={setPreferredHubQuery} />
+            <label className="block">
+              <span className="mb-2 block text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">Class</span>
+              <select value={classType} onChange={(event) => setClassType(event.target.value)} className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold dark:border-white/10 dark:bg-[#111827] dark:text-white">{["Any", ...classOptions].map((item) => <option key={item}>{item}</option>)}</select>
+            </label>
+            <button className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white dark:bg-white dark:text-slate-950 xl:self-start xl:mt-6">
               <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
                 {state.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               </span>
@@ -1166,19 +1391,25 @@ function TrainResultsWorkspace() {
               <button key={key} type="button" onClick={() => setAllowSplit(key === "split")} className={`rounded-full border px-3 py-2 text-xs font-black ${allowSplit === (key === "split") ? "border-cyan-300 bg-cyan-100 text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100" : "border-slate-200 bg-white text-slate-500 dark:border-white/10 dark:bg-white/6 dark:text-slate-400"}`}>{label}</button>
             ))}
           </div>
+          {allowSplit && selectedPreferredHub && selectedPreferredHub !== source && selectedPreferredHub !== destination && (
+            <div className="mt-3 rounded-2xl border border-cyan-300/40 bg-cyan-50 px-4 py-3 text-sm font-bold text-cyan-900 dark:bg-cyan-300/10 dark:text-cyan-50">
+              Prioritizing split journeys via {fullStationLabelFromCode(selectedPreferredHub)}.
+            </div>
+          )}
         </form>
       </div>
       {state.error && <div className="mt-5 rounded-3xl border border-rose-300/40 bg-rose-50 p-5 font-bold text-rose-700 dark:bg-rose-400/10 dark:text-rose-100">{state.error}</div>}
-      {state.loading && <LoadingBlock label="Scanning live train inventory..." />}
-      {(state.trains.length > 0 || state.splits.length > 0) && (
+      {state.loading && <LoadingBlock label="Scanning train inventory..." />}
+      {(state.trains.length > 0 || state.splits.length > 0 || state.multiSplits.length > 0) && (
         <div className={softPanel("mt-6 rounded-[28px] p-4")}>
           <div className="flex flex-wrap gap-2">
             {[
-              ["all", `All options (${filteredTrains.length + (allowSplit ? filteredSplits.length : 0)})`],
+              ["all", `All options (${filteredTrains.length + (allowSplit ? filteredSplits.length + filteredMultiSplits.length : 0)})`],
               ["direct", `Direct trains (${filteredTrains.length})`],
               ["split", `Split journeys (${filteredSplits.length})`],
+              ["multi", `Multi-split (${filteredMultiSplits.length})`],
             ].map(([key, label]) => (
-              <button key={key} type="button" onClick={() => setResultMode(key as "all" | "direct" | "split")} className={`rounded-full border px-4 py-2 text-xs font-black ${resultMode === key ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-slate-950" : "border-slate-200 bg-white text-slate-500 dark:border-white/10 dark:bg-white/6 dark:text-slate-300"}`}>
+              <button key={key} type="button" onClick={() => setResultMode(key as "all" | "direct" | "split" | "multi")} className={`rounded-full border px-4 py-2 text-xs font-black ${resultMode === key ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-slate-950" : "border-slate-200 bg-white text-slate-500 dark:border-white/10 dark:bg-white/6 dark:text-slate-300"}`}>
                 {label}
               </button>
             ))}
@@ -1198,12 +1429,16 @@ function TrainResultsWorkspace() {
             <input value={maxDuration} onChange={(event) => setMaxDuration(event.target.value.replace(/[^\d.]/g, "").slice(0, 4))} placeholder="Max hours, e.g. 12" className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black outline-none focus:border-cyan-400 dark:border-white/10 dark:bg-white/8 dark:text-white" />
           </div>
           <div className="mt-3 text-xs font-bold text-slate-500 dark:text-slate-400">
-            Filters use live IRCTC-compatible availability/fare fields when returned, with cached estimates only when the provider does not expose quota data.
+            Filters use IRCTC-compatible availability/fare fields when returned, with cached estimates only when the provider does not expose quota data.
           </div>
         </div>
       )}
       <div className="mt-6 space-y-4">
         {compareTrains.length > 0 && <TrainComparePanel trains={compareTrains} onClear={() => setCompareIds([])} />}
+        {shouldShowNearbyOptimizer(source, destination) && (
+          <NearbyBoardingOptimizer source={source} destination={destination} date={date} classType={classType} />
+        )}
+        {filteredTrains.length > 0 && !shouldShowNearbyOptimizer(source, destination) && shouldShowBestDirectPanel(source, destination, filteredTrains[0]) && <BestDirectOptionPanel train={filteredTrains[0]} />}
         {(resultMode === "all" || resultMode === "direct") && filteredTrains.map((train) => {
           const key = trainCompareKey(train);
           return (
@@ -1217,9 +1452,10 @@ function TrainResultsWorkspace() {
             />
           );
         })}
-        {allowSplit && state.splitLoading && (resultMode === "all" || resultMode === "split") && <LoadingBlock label="Finding real split journeys from live train data..." />}
+        {allowSplit && state.splitLoading && (resultMode === "all" || resultMode === "split" || resultMode === "multi") && <LoadingBlock label="Finding split and multi-split journeys from train data..." />}
         {allowSplit && (resultMode === "all" || resultMode === "split") && filteredSplits.map((split, index) => <SplitJourneyCard key={`${split.hubStation}-${index}`} split={split} />)}
-        {!state.loading && !state.splitLoading && (state.trains.length > 0 || state.splits.length > 0) && !filteredTrains.length && !filteredSplits.length && (
+        {allowSplit && (resultMode === "all" || resultMode === "multi") && filteredMultiSplits.map((split, index) => <MultiSplitJourneyCard key={`${split.interchangeStations?.join("-") || "multi"}-${index}`} split={split} />)}
+        {!state.loading && !state.splitLoading && (state.trains.length > 0 || state.splits.length > 0 || state.multiSplits.length > 0) && !filteredTrains.length && !filteredSplits.length && !filteredMultiSplits.length && (
           <div className={softPanel("rounded-[30px] p-6")}>
             <h3 className="text-2xl font-black">No trains match these filters.</h3>
             <p className="mt-2 text-sm font-semibold leading-6 text-slate-500 dark:text-slate-400">
@@ -1227,12 +1463,13 @@ function TrainResultsWorkspace() {
             </p>
           </div>
         )}
-        {!state.loading && !state.splitLoading && !state.trains.length && !state.splits.length && (
+        {!shouldShowNearbyOptimizer(source, destination) && !state.loading && !state.splitLoading && !state.trains.length && !state.splits.length && !state.multiSplits.length && (
           <div className={softPanel("rounded-[30px] p-6")}>
-            <h3 className="text-2xl font-black">No live train options found for this exact search.</h3>
+            <h3 className="text-2xl font-black">No train options found for this exact search.</h3>
             <p className="mt-2 text-sm font-semibold leading-6 text-slate-500 dark:text-slate-400">
-              RailRoute checked the IRCTC-compatible train inventory and did not find a direct or valid split route for this date. Try nearby stations, a different date, or verify manually on IRCTC.
+              RailRoute checked the IRCTC-compatible train inventory, including nearby junctions and multi-split options, and did not find a valid route for this date. Try a different date or verify manually on IRCTC.
             </p>
+            <SmallStationAccessPanel source={source} destination={destination} date={date} classType={classType} />
             <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="mt-4 inline-flex rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white dark:bg-white dark:text-slate-950">Open IRCTC train search</a>
           </div>
         )}
@@ -1247,6 +1484,43 @@ function TrainResultsWorkspace() {
   );
 }
 
+function SmallStationAccessPanel({ source, destination, date, classType }: { source: string; destination: string; date: string; classType: string }) {
+  const sourceHubs = routeAccessHubs(source);
+  const destinationHubs = routeAccessHubs(destination, ["NDLS", "NZM", "KOTA", "AII", "DDU", "CNB"]);
+  const middleHubs = Array.from(new Set([...destinationHubs, "NDLS", "NZM", "KOTA", "DDU", "CNB"]))
+    .filter((hub) => hub !== source && hub !== destination)
+    .slice(0, 5);
+  const routeLinks = [
+    ...sourceHubs.slice(0, 4).map((hub) => ({ from: source, to: hub, label: "Start gateway" })),
+    ...middleHubs.slice(0, 4).map((hub) => ({ from: hub, to: destination, label: "Final leg" })),
+  ];
+
+  if (!source || !destination || routeLinks.length === 0) return null;
+
+  return (
+    <div className="mt-5 rounded-3xl border border-cyan-300/25 bg-cyan-50/70 p-4 dark:border-cyan-300/15 dark:bg-cyan-300/10">
+      <div className="text-xs font-black uppercase text-cyan-800 dark:text-cyan-100">Small station access mode</div>
+      <h4 className="mt-2 text-lg font-black">Try station-gateway legs for complete coverage</h4>
+      <p className="mt-1 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
+        For smaller stations, IRCTC may expose better results one leg at a time. These are the best gateway checks for {fullStationLabelFromCode(source, false)} to {fullStationLabelFromCode(destination, false)} on {prettyDateLabel(date)} in {classType}.
+      </p>
+      <div className="mt-4 grid gap-2 md:grid-cols-2">
+        {routeLinks.map((leg) => (
+          <Link
+            key={`${leg.from}-${leg.to}-${leg.label}`}
+            href={`/trains?source=${leg.from}&destination=${leg.to}&date=${date}&classType=${classType}`}
+            onClick={() => window.setTimeout(() => window.dispatchEvent(new Event("railroute-search-change")), 80)}
+            className="flex items-center justify-between gap-3 rounded-2xl border border-cyan-200 bg-white px-4 py-3 text-sm font-black text-slate-900 transition hover:border-cyan-400 dark:border-white/10 dark:bg-white/8 dark:text-white"
+          >
+            <span className="min-w-0 leading-5">{fullStationLabelFromCode(leg.from, false)} → {fullStationLabelFromCode(leg.to, false)}</span>
+            <span className="shrink-0 rounded-full bg-cyan-100 px-2.5 py-1 text-[10px] text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">{leg.label}</span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RailRouteCapabilityPanel() {
   const items = [
     ["Search trains", "Find direct trains between selected stations with date and class filters."],
@@ -1254,7 +1528,7 @@ function RailRouteCapabilityPanel() {
     ["Seat map", "Click any class chip to inspect berth layout, coach options, fare and status."],
     ["Ticket status", "Read green AVL, yellow RAC and red WL/REGRET signals before booking."],
     ["Split journeys", "Switch to split results to compare two-leg routes, layover and cost."],
-    ["IRCTC verify", "Use the booking buttons for final live quota and ticket confirmation on IRCTC."],
+    ["IRCTC verify", "Use the booking buttons for final seat quota and ticket confirmation on IRCTC."],
   ];
 
   return (
@@ -1320,8 +1594,8 @@ function StationCodeLookup() {
                   <Link href={`/trains?source=PNBE&destination=${station.code}&date=${quickDate}&classType=3A`} className="rounded-full bg-slate-200 px-3 py-2 text-xs font-black text-slate-800 transition hover:bg-slate-300 dark:bg-white/10 dark:text-slate-100">
                     Search to {station.code}
                   </Link>
-                  <Link href="/live" className="rounded-full bg-emerald-100 px-3 py-2 text-xs font-black text-emerald-800 transition hover:bg-emerald-200 dark:bg-emerald-300/12 dark:text-emerald-100">
-                    Live tools
+                  <Link href={`/trains?source=${station.code}&destination=JP&date=${quickDate}&classType=3A`} className="rounded-full bg-emerald-100 px-3 py-2 text-xs font-black text-emerald-800 transition hover:bg-emerald-200 dark:bg-emerald-300/12 dark:text-emerald-100">
+                    Split planner
                   </Link>
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -1360,6 +1634,855 @@ function LoadingBlock({ label }: { label: string }) {
     <div className={softPanel("mt-6 rounded-[28px] p-6")}>
       <div className="flex items-center gap-3 text-sm font-black text-slate-500 dark:text-slate-300"><Loader2 className="h-4 w-4 animate-spin" />{label}</div>
       <div className="mt-5 grid gap-3 md:grid-cols-3">{[0, 1, 2].map((item) => <div key={item} className="h-24 animate-pulse rounded-3xl bg-slate-100 dark:bg-white/8" />)}</div>
+    </div>
+  );
+}
+
+function shouldShowBestDirectPanel(source: string, destination: string, train: any) {
+  const duration = durationToMinutes(train?.duration);
+  return (
+    duration > 0 &&
+    duration <= 8 * 60 &&
+    String(train?.source || "").toUpperCase() === source.toUpperCase() &&
+    String(train?.destination || "").toUpperCase() === destination.toUpperCase()
+  );
+}
+
+function BestDirectOptionPanel({ train }: { train: any }) {
+  return (
+    <div className={softPanel("rounded-[30px] p-5")}>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div className="text-xs font-black uppercase text-emerald-700 dark:text-emerald-200">Best direct option</div>
+          <h3 className="mt-2 text-2xl font-black">{trainNumberName(train)}</h3>
+          <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
+            Exact direct route: {fullStationLabelFromCode(train.source, false)} to {fullStationLabelFromCode(train.destination, false)}. Split options still appear below when they are useful.
+          </p>
+        </div>
+        <div className="grid min-w-[280px] grid-cols-3 gap-2 text-center text-sm">
+          <div className="rounded-2xl bg-slate-50 p-3 dark:bg-black/20">
+            <div className="text-[10px] font-black uppercase text-slate-400">Depart</div>
+            <div className="mt-1 text-xl font-black">{train.departureTime || "--:--"}</div>
+          </div>
+          <div className="rounded-2xl bg-slate-50 p-3 dark:bg-black/20">
+            <div className="text-[10px] font-black uppercase text-slate-400">Arrive</div>
+            <div className="mt-1 text-xl font-black">{train.arrivalTime || "--:--"}</div>
+          </div>
+          <div className="rounded-2xl bg-slate-50 p-3 dark:bg-black/20">
+            <div className="text-[10px] font-black uppercase text-slate-400">Journey</div>
+            <div className="mt-1 text-xl font-black">{train.duration || "--"}</div>
+          </div>
+        </div>
+      </div>
+      <div className="mt-4 rounded-2xl border border-amber-300/35 bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100">
+        Final seat status and fare still need verification on IRCTC before booking.
+      </div>
+    </div>
+  );
+}
+
+const CKP_NEARBY_BOARDING = [
+  { code: "KND", distanceKm: 47, access: "Kandra nearby boarding", buffer: "Good when IRCTC does not expose CKP" },
+  { code: "TATA", distanceKm: 59, access: "Road/local rail from CKP", buffer: "Leave CKP 90-120 min before train" },
+  { code: "SINI", distanceKm: 35, access: "Local rail corridor from CKP", buffer: "Leave CKP 60-90 min before train" },
+  { code: "CNI", distanceKm: 56, access: "Chandil side nearby boarding", buffer: "Often useful for Ranchi-side trains" },
+  { code: "ROU", distanceKm: 101, access: "Rourkela major junction", buffer: "Useful for western and Delhi-side trains" },
+];
+
+const CKP_MAJOR_DESTINATIONS = [
+  { code: "JP", label: "Jaipur" },
+  { code: "RNC", label: "Ranchi" },
+  { code: "TATA", label: "Tatanagar" },
+  { code: "ROU", label: "Rourkela" },
+  { code: "HTE", label: "Hatia" },
+  { code: "PNBE", label: "Patna" },
+  { code: "DDU", label: "DDU" },
+  { code: "NDLS", label: "Delhi" },
+  { code: "HWH", label: "Howrah" },
+];
+
+type CkpExplorerPair = { from: string; to: string };
+type CkpExplorerAccess = { code: string; distanceKm: number; minutes: number; label: string; buffer: string };
+type CkpExplorerPlan = { id: string; title: string; stations?: string[]; pairs?: CkpExplorerPair[]; accessFromCkp?: CkpExplorerAccess };
+
+const CKP_ROUTE_EXPLORER_PLANS: CkpExplorerPlan[] = [
+  { id: "delhi-terminal", title: "Delhi terminal transfer", pairs: [{ from: "CKP", to: "NZM" }, { from: "DLI", to: "$DEST" }] },
+  { id: "delhi-ndls", title: "Delhi NDLS transfer", pairs: [{ from: "CKP", to: "NZM" }, { from: "NDLS", to: "$DEST" }] },
+  { id: "tata-ddu-access", title: "Tatanagar + DDU split", pairs: [{ from: "TATA", to: "DDU" }, { from: "DDU", to: "$DEST" }], accessFromCkp: { code: "TATA", distanceKm: 59, minutes: 105, label: "Access to Tatanagar Junction", buffer: "Road/local rail from CKP before the first train" } },
+  { id: "tata-delhi-access", title: "Tatanagar + Delhi split", pairs: [{ from: "TATA", to: "NDLS" }, { from: "DLI", to: "$DEST" }], accessFromCkp: { code: "TATA", distanceKm: 59, minutes: 105, label: "Access to Tatanagar Junction", buffer: "Road/local rail from CKP before the first train" } },
+  { id: "rou-delhi-access", title: "Rourkela + Delhi split", pairs: [{ from: "ROU", to: "DLI" }, { from: "DLI", to: "$DEST" }], accessFromCkp: { code: "ROU", distanceKm: 101, minutes: 165, label: "Access to Rourkela Junction", buffer: "Major junction option west of CKP" } },
+  { id: "tata-ddu", title: "Tatanagar + DDU", stations: ["CKP", "TATA", "DDU"] },
+  { id: "tata-delhi", title: "Tatanagar + Delhi", stations: ["CKP", "TATA", "NDLS"] },
+  { id: "tata-patna", title: "Tatanagar + Patna", stations: ["CKP", "TATA", "PNBE"] },
+  { id: "ranchi-direct", title: "Ranchi check", stations: ["CKP", "RNC"] },
+  { id: "tata-direct", title: "Tatanagar direct check", stations: ["CKP", "TATA"] },
+  { id: "rourkela-direct", title: "Rourkela check", stations: ["CKP", "ROU"] },
+];
+
+const CLASS_FARE_ESTIMATES: Record<string, number> = { SL: 150, "3E": 520, "3A": 520, "2A": 725, "1A": 1180, CC: 545, EC: 965 };
+
+const NEARBY_DESTINATIONS_BY_CODE: Record<string, { code: string; distanceKm: number }[]> = {
+  RNC: [{ code: "RNC", distanceKm: 0 }, { code: "HTE", distanceKm: 7 }, { code: "MURI", distanceKm: 54 }],
+  HTE: [{ code: "HTE", distanceKm: 0 }, { code: "RNC", distanceKm: 7 }, { code: "MURI", distanceKm: 54 }],
+  PNBE: [{ code: "PNBE", distanceKm: 0 }, { code: "RJPB", distanceKm: 5 }, { code: "DNR", distanceKm: 10 }, { code: "PPTA", distanceKm: 12 }],
+  DDU: [{ code: "DDU", distanceKm: 0 }, { code: "BSB", distanceKm: 17 }],
+  NDLS: [{ code: "NDLS", distanceKm: 0 }, { code: "DLI", distanceKm: 4 }, { code: "NZM", distanceKm: 8 }, { code: "ANVT", distanceKm: 13 }],
+  HWH: [{ code: "HWH", distanceKm: 0 }, { code: "SDAH", distanceKm: 6 }, { code: "KOAA", distanceKm: 8 }, { code: "SHM", distanceKm: 7 }],
+  JP: [{ code: "JP", distanceKm: 0 }, { code: "GADJ", distanceKm: 6 }, { code: "DPA", distanceKm: 8 }, { code: "FL", distanceKm: 55 }, { code: "AII", distanceKm: 135 }],
+};
+
+function nearbyDestinationCandidates(destination: string) {
+  const normalized = destination.toUpperCase();
+  return NEARBY_DESTINATIONS_BY_CODE[normalized] || [{ code: normalized, distanceKm: 0 }];
+}
+
+function legEndpointPairs(stations: string[], destination: string) {
+  const path = [...stations, destination.toUpperCase()].filter((code, index, list) => code && list.indexOf(code) === index);
+  return path.slice(0, -1).map((from, index) => ({ from, to: path[index + 1] }));
+}
+
+function ckpExplorerPairs(plan: CkpExplorerPlan, destination: string) {
+  if (plan.pairs?.length) {
+    return plan.pairs.map((pair) => ({
+      from: pair.from === "$DEST" ? destination.toUpperCase() : pair.from,
+      to: pair.to === "$DEST" ? destination.toUpperCase() : pair.to,
+    }));
+  }
+  return legEndpointPairs(plan.stations || [], destination);
+}
+
+function absoluteArrivalMinutes(departureAbs: number, leg: any) {
+  const duration = durationToMinutes(leg.duration);
+  if (duration > 0) return departureAbs + duration;
+  let arrival = timeToMinutes(leg.arrivalTime);
+  while (arrival <= departureAbs) arrival += 24 * 60;
+  return arrival;
+}
+
+function computeLegTiming(legs: any[]) {
+  if (!legs.length) return { totalMinutes: 0, layovers: [] as { station: string; fromStation: string; toStation: string; duration: string; hours: number; isStationTransfer: boolean }[] };
+  let firstDeparture = timeToMinutes(legs[0].departureTime);
+  if (firstDeparture > 24 * 60) firstDeparture = 0;
+  let currentArrival = absoluteArrivalMinutes(firstDeparture, legs[0]);
+
+  const layovers: { station: string; fromStation: string; toStation: string; duration: string; hours: number; isStationTransfer: boolean }[] = [];
+  for (let index = 1; index < legs.length; index += 1) {
+    const leg = legs[index];
+    const fromStation = String(legs[index - 1].destination || "").toUpperCase();
+    const toStation = String(leg.source || "").toUpperCase();
+    const isStationTransfer = Boolean(fromStation && toStation && fromStation !== toStation);
+    const minBufferMinutes = isStationTransfer ? 90 : 45;
+    let departure = timeToMinutes(leg.departureTime);
+    while (departure < currentArrival + minBufferMinutes) departure += 24 * 60;
+    const layoverMinutes = Math.max(0, departure - currentArrival);
+    layovers.push({
+      station: isStationTransfer ? toStation : fromStation || toStation,
+      fromStation,
+      toStation,
+      duration: formatDurationLong(layoverMinutes),
+      hours: layoverMinutes / 60,
+      isStationTransfer,
+    });
+
+    currentArrival = absoluteArrivalMinutes(departure, leg);
+  }
+
+  return {
+    totalMinutes: Math.max(0, currentArrival - firstDeparture),
+    layovers,
+  };
+}
+
+function pickRouteExplorerCombo(legOptions: any[][]) {
+  const choices: any[][] = [];
+
+  function walk(index: number, current: any[]) {
+    if (index === legOptions.length) {
+      choices.push(current);
+      return;
+    }
+    legOptions[index].slice(0, 12).forEach((train) => walk(index + 1, [...current, train]));
+  }
+
+  walk(0, []);
+  const ranked = choices
+    .map((legs) => {
+      const timing = computeLegTiming(legs);
+      const maxLayover = Math.max(0, ...timing.layovers.map((layover) => layover.hours));
+      const totalLayover = timing.layovers.reduce((sum, layover) => sum + layover.hours, 0);
+      const layoverPenalty = timing.layovers.reduce((sum, layover) => {
+        if (layover.hours < (layover.isStationTransfer ? 1.5 : 0.75)) return sum + 9999;
+        if (layover.hours > 8) return sum + 5000;
+        if (layover.hours > 6) return sum + 900;
+        return sum + Math.max(0, layover.hours - 3) * 85;
+      }, 0);
+      const availabilityBonus = legs.reduce((sum, leg) => sum + (isSeatAvailable(leg.availability) ? 90 : /RAC/i.test(readableRailStatus(leg.availability)) ? 35 : 0), 0);
+      return { legs, timing, maxLayover, totalLayover, score: availabilityBonus - timing.totalMinutes / 6 - layoverPenalty };
+    })
+    .filter((item) => item.timing.layovers.every((layover) => layover.hours >= (layover.isStationTransfer ? 1.5 : 0.75)));
+  const optimized = ranked.filter((item) => item.maxLayover <= 6);
+  const fallback = ranked.filter((item) => item.maxLayover <= 8);
+  return (optimized.length ? optimized : fallback)
+    .sort((a, b) => b.score - a.score || a.totalLayover - b.totalLayover || a.timing.totalMinutes - b.timing.totalMinutes)[0] || null;
+}
+
+function CkpOptionEmpty({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-[26px] border border-slate-200 bg-slate-50 p-5 dark:border-white/10 dark:bg-black/20">
+      <h5 className="text-lg font-black">{title}</h5>
+      <p className="mt-2 text-sm font-semibold leading-6 text-slate-500 dark:text-slate-400">{body}</p>
+    </div>
+  );
+}
+
+function DirectTrainMiniCard({ train, label = "Direct train", note, onClass }: { train: any; label?: string; note?: string; onClass?: (train: any, classCode: string) => void }) {
+  const railMinutes = durationToMinutes(train.duration);
+  const tone = journeyAccentTone(train.availability);
+  const classes = train.classes?.length ? train.classes.slice(0, 5) : [primaryClassCode(train)];
+  return (
+    <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-xl shadow-slate-200/45 dark:border-cyan-300/15 dark:bg-[#081221] dark:shadow-black/25">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">{label}</span>
+          <h5 className="mt-3 text-2xl font-black">{trainNumberName(train)}</h5>
+          <p className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">
+            {fullStationLabelFromCode(train.source, false)} to {fullStationLabelFromCode(train.destination, false)}
+          </p>
+          {note && <p className="mt-2 text-xs font-black text-cyan-700 dark:text-cyan-200">{note}</p>}
+        </div>
+        <span className={`rounded-full border px-3 py-2 text-xs font-black ${availabilityTone(train.availability)}`}>
+          {readableRailStatus(train.availability) || "Tap for quota"}
+        </span>
+      </div>
+      <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-start gap-3">
+        <div>
+          <div className="text-sm font-black text-slate-500 dark:text-slate-400">{stationCompactLabel(train.source)}</div>
+          <div className="mt-1 text-3xl font-black tracking-tight">{timeAmPm(train.departureTime)}</div>
+        </div>
+        <div className="pt-9 text-center">
+          <div className={`flex items-center gap-2 text-sm font-black ${tone.text}`}>
+            <span className={`h-2 w-2 rounded-full ${tone.dot}`} />
+            <span>{railMinutes ? formatDurationLong(railMinutes) : train.duration || "--"}</span>
+            <span className={`h-2 w-2 rounded-full ${tone.dot}`} />
+          </div>
+          <div className={`mt-2 h-px w-24 ${tone.line}`} />
+        </div>
+        <div>
+          <div className="text-sm font-black text-slate-500 dark:text-slate-400">{stationCompactLabel(train.destination)}</div>
+          <div className="mt-1 text-3xl font-black tracking-tight">{timeAmPm(train.arrivalTime)}</div>
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {classes.map((classCode: string) => (
+          <button key={`${train.trainNo}-${classCode}`} type="button" onClick={() => onClass?.({ ...train, classType: classCode }, classCode)} className={`rounded-full border px-3 py-2 text-xs font-black ${availabilityTone(classAvailabilityStatus(train, classCode))}`}>
+            {classCode} · {classAvailabilityStatus(train, classCode)} · {classFareText(train, classCode)}
+          </button>
+        ))}
+        <button type="button" onClick={() => onClass?.({ ...train, classType: primaryClassCode(train) }, primaryClassCode(train))} className="rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white dark:bg-white dark:text-slate-950">
+          Seats + berth map
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function NearbyDirectMiniCard({ option, onClass }: { option: any; onClass?: (train: any, classCode: string) => void }) {
+  const train = option.train;
+  const access = option.boarding.distanceKm > 0 ? `${option.boarding.distanceKm} km from CKP` : "Board at CKP";
+  const arrivalAccess = option.arrival.distanceKm > 0 ? `${option.arrival.distanceKm} km from JP` : "Arrives at destination";
+  return (
+    <DirectTrainMiniCard
+      train={train}
+      label="Nearby direct train"
+      note={`${access} · ${arrivalAccess} · total with access ${formatDurationLong(option.totalMinutes)}`}
+      onClass={onClass}
+    />
+  );
+}
+
+function ckpRoutePathLabels(legs: any[]) {
+  if (!legs.length) return [];
+  const labels = [fullStationLabelFromCode(legs[0].source, false)];
+  legs.forEach((leg, index) => {
+    if (index > 0) {
+      const previousDestination = String(legs[index - 1]?.destination || "").toUpperCase();
+      const nextSource = String(leg.source || "").toUpperCase();
+      if (previousDestination && nextSource && previousDestination !== nextSource) {
+        labels.push(`${stationCompactLabel(previousDestination)} → ${stationCompactLabel(nextSource)} transfer`);
+      }
+    }
+    labels.push(fullStationLabelFromCode(leg.destination, false));
+  });
+  return labels;
+}
+
+function CkpSplitStyleCard({ route }: { route: any }) {
+  const [seatMapTrain, setSeatMapTrain] = useState<any | null>(null);
+  const [routeTrain, setRouteTrain] = useState<any | null>(null);
+  const legs = route.legs || [];
+  const pathLabels = ckpRoutePathLabels(legs);
+  const layovers = route.layovers || [];
+  const access = route.accessFromCkp as CkpExplorerAccess | undefined;
+  const maxLayoverHours = Math.max(0, ...layovers.map((layover: any) => Number(layover.hours) || 0));
+  const maxLayoverText = maxLayoverHours ? formatDurationLong(Math.round(maxLayoverHours * 60)) : "--";
+
+  return (
+    <article className="overflow-hidden rounded-[30px] border border-slate-200/80 bg-white shadow-xl shadow-slate-200/50 dark:border-cyan-300/15 dark:bg-[#07111f] dark:shadow-black/30">
+      <div className="border-b border-slate-200/80 bg-gradient-to-r from-emerald-50 via-cyan-50 to-white p-5 dark:border-cyan-300/15 dark:from-[#0c322f] dark:via-[#0a1b2d] dark:to-[#170f24]">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">Optimized split</span>
+            <h5 className="mt-3 text-2xl font-black">Best route via {route.explorerTitle || "checked gateway"}</h5>
+            <p className="mt-2 max-w-3xl text-sm font-bold leading-6 text-slate-500 dark:text-slate-400">
+              Large layovers are filtered out. Gateway station routes include CKP access time before the first train.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-2xl bg-white px-4 py-3 shadow-sm dark:bg-[#081221]">
+              <div className="text-[10px] font-black uppercase text-slate-400">Total</div>
+              <div className="mt-1 text-lg font-black">{route.totalDuration || "--"}</div>
+            </div>
+            <div className="rounded-2xl bg-white px-4 py-3 shadow-sm dark:bg-[#081221]">
+              <div className="text-[10px] font-black uppercase text-slate-400">Max Gap</div>
+              <div className="mt-1 text-lg font-black">{maxLayoverText}</div>
+            </div>
+            <div className="rounded-2xl bg-white px-4 py-3 shadow-sm dark:bg-[#081221]">
+              <div className="text-[10px] font-black uppercase text-slate-400">Fare</div>
+              <div className="mt-1 text-lg font-black">{formatFare(route.totalFare)}</div>
+            </div>
+          </div>
+        </div>
+        {access && (
+          <div className="mt-4 rounded-2xl border border-emerald-300/30 bg-emerald-50 px-4 py-3 text-xs font-black leading-5 text-emerald-900 dark:border-emerald-300/20 dark:bg-emerald-300/10 dark:text-emerald-100">
+            {access.label}: CKP to {fullStationLabelFromCode(access.code, false)} · {access.distanceKm} km · add {formatDurationLong(access.minutes)} before departure. {access.buffer}.
+          </div>
+        )}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {pathLabels.map((label, index) => (
+            <div key={`${label}-${index}`} className="flex items-center gap-2">
+              {index > 0 && <ArrowRight className="h-4 w-4 text-cyan-600 dark:text-cyan-200" />}
+              <span className={`rounded-full px-3 py-2 text-xs font-black ${label.includes("transfer") ? "bg-amber-100 text-amber-900 dark:bg-amber-300/12 dark:text-amber-100" : "bg-white text-slate-700 shadow-sm dark:bg-[#0d1a2d] dark:text-slate-100"}`}>
+                {label}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="p-5">
+        <div className="space-y-3">
+          {legs.map((leg: any, index: number) => {
+            const tone = journeyAccentTone(leg.availability);
+            const duration = durationToMinutes(leg.duration);
+            const layover = layovers[index];
+            return (
+              <div key={`${leg.trainNo}-${leg.source}-${leg.destination}-${index}`}>
+                <div className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-cyan-300/12 dark:bg-[#0b1627] lg:grid-cols-[minmax(220px,0.75fr)_minmax(0,1fr)_auto] lg:items-center">
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-black uppercase text-slate-400">Leg {index + 1}</div>
+                    <h6 className="mt-1 truncate text-lg font-black">{trainNumberName(leg, `Leg ${index + 1} train`)}</h6>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${availabilityTone(leg.availability)}`}>{readableRailStatus(leg.availability) || "Check seats"}</span>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">{liveFareText(leg)}</span>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">Expected PF: {leg.source} {expectedPlatformNumber(leg.source, leg.trainNo)} · {leg.destination} {expectedPlatformNumber(leg.destination, leg.trainNo)}</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-3">
+                    <div>
+                      <div className="text-xs font-black text-slate-500 dark:text-slate-400">{stationCompactLabel(leg.source)}</div>
+                      <div className="mt-1 text-2xl font-black">{timeAmPm(leg.departureTime)}</div>
+                    </div>
+                    <div className="pt-8 text-center">
+                      <div className={`h-px w-16 ${tone.line}`} />
+                      <div className={`mt-1 text-[10px] font-black ${tone.text}`}>{duration ? formatDurationLong(duration) : leg.duration || "--"}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-black text-slate-500 dark:text-slate-400">{stationCompactLabel(leg.destination)}</div>
+                      <div className="mt-1 text-2xl font-black">{timeAmPm(leg.arrivalTime)}</div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+                    <button type="button" onClick={() => setRouteTrain((current: any) => current?.trainNo === leg.trainNo && current?.source === leg.source ? null : leg)} className="rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 text-center text-xs font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">
+                      Route
+                    </button>
+                    <button type="button" onClick={() => setSeatMapTrain((current: any) => current?.trainNo === leg.trainNo && current?.source === leg.source ? null : leg)} className="rounded-full border border-cyan-300 bg-cyan-50 px-4 py-2 text-center text-xs font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">
+                      Seat map
+                    </button>
+                  </div>
+                </div>
+                {layover && (
+                  <div className="mx-4 border-l-2 border-dashed border-cyan-300 py-3 pl-4 dark:border-cyan-300/40">
+                    <div className="inline-flex flex-wrap items-center gap-2 rounded-full bg-cyan-50 px-4 py-2 text-xs font-black text-cyan-900 dark:bg-cyan-300/12 dark:text-cyan-100">
+                      <span>{layover.isStationTransfer ? "Station transfer buffer" : "Layover"}</span>
+                      <span>·</span>
+                      <span>{layover.isStationTransfer ? `${stationCompactLabel(layover.fromStation)} to ${stationCompactLabel(layover.toStation)}` : stationCompactLabel(layover.station)}</span>
+                      <span>·</span>
+                      <span>{layover.duration}</span>
+                    </div>
+                    {legs[index + 1] && (
+                      <div className="mt-2 inline-flex flex-wrap items-center gap-2 rounded-full border border-amber-300/35 bg-amber-50 px-4 py-2 text-xs font-black text-amber-900 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100">
+                        <span>{layover.isStationTransfer ? "Station + platform change" : "Platform change"}</span>
+                        <span>·</span>
+                        <span>
+                          arrive {stationCompactLabel(leg.destination)} PF {expectedPlatformNumber(leg.destination, leg.trainNo)}
+                          {" "}→ depart {stationCompactLabel(legs[index + 1].source)} PF {expectedPlatformNumber(legs[index + 1].source, legs[index + 1].trainNo)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {routeTrain?.trainNo === leg.trainNo && routeTrain?.source === leg.source && (
+                  <div className="mt-3 rounded-[26px] border border-emerald-300/30 bg-emerald-50/70 p-4 dark:bg-emerald-300/10">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="text-xs font-black uppercase text-emerald-800 dark:text-emerald-100">Route for {trainNumberName(leg)}</div>
+                      <button type="button" onClick={() => setRouteTrain(null)} aria-label="Close route" className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-rose-300 hover:text-rose-600 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <InlineRoutePanel trainNo={leg.trainNo} train={leg} />
+                  </div>
+                )}
+                {seatMapTrain?.trainNo === leg.trainNo && seatMapTrain?.source === leg.source && (
+                  <div className="mt-3 rounded-[26px] border border-cyan-300/30 bg-cyan-50/70 p-4 dark:bg-cyan-300/10">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="text-xs font-black uppercase text-cyan-800 dark:text-cyan-100">Seat map for {trainNumberName(leg)}</div>
+                      <button type="button" onClick={() => setSeatMapTrain(null)} aria-label="Close seat map" className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-rose-300 hover:text-rose-600 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <CoachExplorer initialClass={primaryClassCode(leg)} embedded train={leg} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div>
+          <div className="mt-4 rounded-2xl border border-amber-300/35 bg-amber-50 px-4 py-3 text-xs font-black leading-5 text-amber-900 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100">
+            Expected platforms and inter-station transfer times can change. Verify final platform and station transfer on IRCTC and station boards before booking.
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function CkpRouteExplorerPanel({ destination, date, classType }: { destination: string; date: string; classType: string }) {
+  const [mode, setMode] = useState<"direct" | "split" | "multi">("split");
+  const [classView, setClassView] = useState<{ train: any; classCode: string } | null>(null);
+  const [state, setState] = useState<{ loading: boolean; direct: any[]; nearbyDirect: any[]; complete: any[]; error: string }>({ loading: true, direct: [], nearbyDirect: [], complete: [], error: "" });
+  const destinationCode = destination.toUpperCase();
+
+  useEffect(() => {
+    let mounted = true;
+    setMode("split");
+    setState({ loading: true, direct: [], nearbyDirect: [], complete: [], error: "" });
+    const plans = CKP_ROUTE_EXPLORER_PLANS
+      .map((plan) => ({ ...plan, pairs: ckpExplorerPairs(plan, destinationCode) }))
+      .filter((plan) => plan.pairs.every((pair) => pair.from !== pair.to));
+    const uniquePairs = Array.from(new Map(plans.flatMap((plan) => plan.pairs).map((pair) => [`${pair.from}-${pair.to}`, pair])).values());
+    const boardingStations = Array.from(new Map(CKP_NEARBY_BOARDING.map((boarding) => [boarding.code, boarding])).values());
+    const destinationStations = nearbyDestinationCandidates(destinationCode);
+
+    Promise.all([
+      Promise.all(uniquePairs.map((pair) =>
+        postJson<any>("/api/train-between", { source: pair.from, destination: pair.to, date, classType })
+          .then((data) => [`${pair.from}-${pair.to}`, data.trains || []] as const)
+          .catch(() => [`${pair.from}-${pair.to}`, []] as const)
+      )),
+      postJson<any>("/api/train-between", { source: "CKP", destination: destinationCode, date, classType })
+        .then((data) => data.trains || [])
+        .catch(() => []),
+      Promise.all(
+        boardingStations.flatMap((boarding) => destinationStations.map(async (arrival) => {
+          if (boarding.code === arrival.code) return [];
+          const data = await postJson<any>("/api/train-between", { source: boarding.code, destination: arrival.code, date, classType });
+          return (data.trains || []).slice(0, 4).map((train: any) => ({ boarding, arrival, train }));
+        }))
+      ).catch(() => []),
+    ])
+      .then(([entries, directTrains, nearbyGroups]) => {
+        if (!mounted) return;
+        const trainsByPair = new Map(entries);
+        const complete: any[] = [];
+        const accessMinutes = (distanceKm: number) => Math.max(45, Math.round((distanceKm / 38) * 60));
+        const destinationAccessMinutes = (distanceKm: number) => distanceKm > 0 ? Math.max(18, Math.round((distanceKm / 34) * 60)) : 0;
+        const nearbyDirect = (nearbyGroups as any[][]).flat().map((item: any) => {
+          const railMinutes = durationToMinutes(item.train.duration) || 9999;
+          const totalMinutes = railMinutes + accessMinutes(item.boarding.distanceKm) + destinationAccessMinutes(item.arrival.distanceKm);
+          return { ...item, accessMinutes: accessMinutes(item.boarding.distanceKm), destinationAccessMinutes: destinationAccessMinutes(item.arrival.distanceKm), totalMinutes };
+        }).sort((a: any, b: any) => {
+          const scoreA = isSeatAvailable(a.train.availability) ? 0 : /RAC/i.test(readableRailStatus(a.train.availability)) ? 1 : 2;
+          const scoreB = isSeatAvailable(b.train.availability) ? 0 : /RAC/i.test(readableRailStatus(b.train.availability)) ? 1 : 2;
+          return scoreA - scoreB || a.totalMinutes - b.totalMinutes || timeToMinutes(a.train.departureTime) - timeToMinutes(b.train.departureTime);
+        });
+
+        plans.forEach((plan) => {
+          const legOptions = plan.pairs.map((pair) => trainsByPair.get(`${pair.from}-${pair.to}`) || []);
+          if (legOptions.some((options) => options.length === 0)) return;
+
+          const best = pickRouteExplorerCombo(legOptions);
+          if (!best) return;
+          const totalFare = best.legs.reduce((sum: number, leg: any) => sum + (trainFareAmount(leg) || 0), 0);
+          const accessMinutesFromCkp = plan.accessFromCkp?.minutes || 0;
+          const confirmation = best.legs.reduce((chance: number, leg: any) => {
+            const status = readableRailStatus(leg.availability).toUpperCase();
+            const current = isSeatAvailable(status) ? 100 : /RAC/.test(status) ? 65 : /WL|WAIT/.test(status) ? 30 : 55;
+            return (chance * current) / 100;
+          }, 100);
+          complete.push({
+            explorerTitle: plan.title,
+            legs: best.legs,
+            interchangeStations: best.timing.layovers.map((layover: any) => layover.station),
+            interchangeStationNames: best.timing.layovers.map((layover: any) => fullStationLabelFromCode(layover.station, false)),
+            layovers: best.timing.layovers,
+            accessFromCkp: plan.accessFromCkp,
+            totalFare,
+            totalMinutes: best.timing.totalMinutes + accessMinutesFromCkp,
+            totalDuration: formatDurationLong(best.timing.totalMinutes + accessMinutesFromCkp),
+            score: Math.max(0, Math.min(100, Math.round(70 + best.score / 20))),
+            combinedConfirmationChance: Math.round(confirmation),
+          });
+        });
+
+        const seen = new Set<string>();
+        const uniqueComplete = complete.filter((item) => {
+          const key = item.legs.map((leg: any) => `${leg.trainNo}-${leg.source}-${leg.destination}`).join("-");
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }).slice(0, 6);
+        const seenNearby = new Set<string>();
+        const uniqueNearbyDirect = nearbyDirect.filter((item: any) => {
+          const key = `${item.train.trainNo}-${item.train.source}-${item.train.destination}`;
+          if (seenNearby.has(key)) return false;
+          seenNearby.add(key);
+          return true;
+        }).slice(0, 5);
+        setState({ loading: false, direct: directTrains.slice(0, 4), nearbyDirect: uniqueNearbyDirect, complete: uniqueComplete, error: "" });
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        setState({ loading: false, direct: [], nearbyDirect: [], complete: [], error: error instanceof Error ? error.message : "Route explorer failed." });
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [destinationCode, date, classType]);
+
+  const maxRouteLayover = (route: any) => Math.max(0, ...(route.layovers || []).map((layover: any) => Number(layover.hours) || 0));
+  const routeTotalMinutes = (route: any) => Number(route.totalMinutes) || durationToMinutes(route.totalDuration) || 99999;
+  const bestByTrainShape = (routes: any[]) => {
+    const seen = new Set<string>();
+    return routes
+      .sort((a, b) => routeTotalMinutes(a) - routeTotalMinutes(b) || maxRouteLayover(a) - maxRouteLayover(b) || (b.score || 0) - (a.score || 0))
+      .filter((route) => {
+        const legs = route.legs || [];
+        const key = legs.map((leg: any) => `${leg.source}-${leg.destination}`).join("|");
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  };
+  const splitCandidates = bestByTrainShape(state.complete.filter((route) => (route.legs || []).length <= 2 && maxRouteLayover(route) <= 6));
+  const multiCandidates = bestByTrainShape(state.complete.filter((route) => (route.legs || []).length > 2 && maxRouteLayover(route) <= 6));
+  const diversifiedSplitOptions = splitCandidates.filter((route, index, list) => {
+    const gateway = route.accessFromCkp?.code || route.legs?.[0]?.source || route.explorerTitle;
+    return list.findIndex((item) => (item.accessFromCkp?.code || item.legs?.[0]?.source || item.explorerTitle) === gateway) === index;
+  });
+  const splitOptions = (diversifiedSplitOptions.length >= 2 ? diversifiedSplitOptions : splitCandidates).slice(0, 2);
+  const multiOptions = multiCandidates.slice(0, 4);
+  const directOptionCount = state.direct.length + state.nearbyDirect.length;
+  const tabs: { key: "direct" | "split" | "multi"; label: string }[] = [
+    { key: "direct", label: `Direct trains (${directOptionCount})` },
+    { key: "split", label: `Split journey (${splitOptions.length})` },
+    { key: "multi", label: `Multi-split journey (${multiOptions.length})` },
+  ];
+
+  return (
+    <div className="border-b border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-white/[0.04]">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-xs font-black uppercase text-emerald-700 dark:text-emerald-200">{destinationCode === "JP" ? "CKP → Jaipur options" : "CKP route options"}</div>
+          <h4 className="mt-1 text-2xl font-black">Direct, split and multi-split journeys</h4>
+          <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
+            Checked from Chakradharpur with nearby gateway legs, full station names, AM/PM timing, layovers and expected platforms.
+          </p>
+        </div>
+        <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-600 dark:bg-white/10 dark:text-slate-200">
+          {state.loading ? "Checking options..." : `${directOptionCount + splitOptions.length + multiOptions.length} listed options`}
+        </span>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {tabs.map((tab) => (
+          <button key={tab.key} type="button" onClick={() => setMode(tab.key)} className={`rounded-full border px-4 py-2 text-xs font-black transition ${mode === tab.key ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-slate-950" : "border-slate-200 bg-slate-50 text-slate-600 hover:border-cyan-300 dark:border-white/10 dark:bg-white/8 dark:text-slate-200"}`}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {state.loading && <div className="mt-4"><LoadingBlock label="Checking CKP direct, split and multi-split routes..." /></div>}
+      {state.error && <div className="mt-4 rounded-2xl border border-rose-300/40 bg-rose-50 p-4 text-sm font-bold text-rose-700 dark:bg-rose-400/10 dark:text-rose-100">{state.error}</div>}
+
+      {!state.loading && mode === "direct" && (
+        <div className="mt-4 space-y-4">
+          {directOptionCount > 0 ? (
+            <>
+              {state.direct.map((train, index) => (
+                <DirectTrainMiniCard key={`${train.trainNo}-${train.source}-${train.destination}-${index}`} train={train} label="Exact direct train" onClass={(nextTrain, classCode) => setClassView({ train: nextTrain, classCode })} />
+              ))}
+              {state.nearbyDirect.map((option, index) => (
+                <NearbyDirectMiniCard key={`nearby-${option.train.trainNo}-${option.train.source}-${option.train.destination}-${index}`} option={option} onClass={(nextTrain, classCode) => setClassView({ train: nextTrain, classCode })} />
+              ))}
+            </>
+          ) : (
+            <CkpOptionEmpty title="No direct train option returned" body={`No exact or nearby direct train came back for ${stationCompactLabel("CKP")} to ${stationCompactLabel(destinationCode)} on this date. Use Split journey for practical gateway options.`} />
+          )}
+        </div>
+      )}
+
+      {!state.loading && mode === "split" && (
+        <div className="mt-4 space-y-4">
+          {splitOptions.length > 0
+            ? splitOptions.map((route, index) => <CkpSplitStyleCard key={`${route.explorerTitle}-split-${index}`} route={route} />)
+            : <CkpOptionEmpty title="No clean split route came back yet" body="RailRoute did not get a complete split connection for this date from the provider. Try another date or a preferred Via station such as DDU, Delhi or Tatanagar." />}
+        </div>
+      )}
+
+      {!state.loading && mode === "multi" && (
+        <div className="mt-4 space-y-4">
+          {multiOptions.length > 0
+            ? multiOptions.map((route, index) => <MultiSplitJourneyCard key={`${route.explorerTitle}-multi-${index}`} split={route} />)
+            : <CkpOptionEmpty title="No separate multi-split route came back yet" body="The split tab already has the clean two-train option. Multi-split only shows routes with three or more train legs, so it will not duplicate the split result." />}
+        </div>
+      )}
+      <AnimatePresence>
+        {classView && <ClassDetailModal train={classView.train} classCode={classView.classCode} journeyDate={date} onClose={() => setClassView(null)} />}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function NearbyBoardingOptimizer({ source, destination, date, classType }: { source: string; destination: string; date: string; classType: string }) {
+  const [state, setState] = useState<{ loading: boolean; error: string; options: any[] }>({ loading: true, error: "", options: [] });
+  const [openRoute, setOpenRoute] = useState<string>("");
+  const [classView, setClassView] = useState<{ train: any; classCode: string } | null>(null);
+  const useRouteExplorerOnly = source.toUpperCase() === "CKP";
+
+  useEffect(() => {
+    let mounted = true;
+    if (useRouteExplorerOnly) {
+      setState({ loading: false, error: "", options: [] });
+      return () => {
+        mounted = false;
+      };
+    }
+    setState({ loading: true, error: "", options: [] });
+
+    const boardingStations = Array.from(new Map(CKP_NEARBY_BOARDING.map((boarding) => [boarding.code, boarding])).values());
+    const destinationStations = nearbyDestinationCandidates(destination);
+
+    Promise.all(
+      boardingStations.flatMap((boarding) => destinationStations.map(async (arrival) => {
+        if (boarding.code === arrival.code) return [];
+        const data = await postJson<any>("/api/train-between", {
+          source: boarding.code,
+          destination: arrival.code,
+          date,
+          classType,
+        });
+        const trains = (data.trains || []).slice(0, 4);
+        return trains.map((train: any) => ({ boarding, arrival, train }));
+      }))
+    )
+      .then((groups) => {
+        if (!mounted) return;
+        const accessMinutes = (distanceKm: number) => Math.max(45, Math.round((distanceKm / 38) * 60));
+        const destinationAccessMinutes = (distanceKm: number) => distanceKm > 0 ? Math.max(18, Math.round((distanceKm / 34) * 60)) : 0;
+        const rawOptions = groups.flat().map((item) => {
+          const railMinutes = durationToMinutes(item.train.duration) || 9999;
+          const totalMinutes = railMinutes + accessMinutes(item.boarding.distanceKm) + destinationAccessMinutes(item.arrival.distanceKm);
+          return {
+            ...item,
+            accessMinutes: accessMinutes(item.boarding.distanceKm),
+            destinationAccessMinutes: destinationAccessMinutes(item.arrival.distanceKm),
+            totalMinutes
+          };
+        }).sort((a, b) => a.totalMinutes - b.totalMinutes || timeToMinutes(a.train.departureTime) - timeToMinutes(b.train.departureTime));
+
+        const byTrain = new Map<string, any>();
+        rawOptions.forEach((option) => {
+          const key = String(option.train.trainNo || option.train.trainName || `${option.boarding.code}-${option.arrival.code}`);
+          const current = byTrain.get(key);
+          if (!current) {
+            byTrain.set(key, { ...option, variants: [option] });
+            return;
+          }
+          current.variants.push(option);
+          if (option.totalMinutes < current.totalMinutes) {
+            byTrain.set(key, { ...option, variants: current.variants });
+          }
+        });
+
+        const options = Array.from(byTrain.values())
+          .map((option) => ({
+            ...option,
+            variants: option.variants.sort((a: any, b: any) => a.totalMinutes - b.totalMinutes).slice(0, 5),
+          }))
+          .sort((a, b) => a.totalMinutes - b.totalMinutes || timeToMinutes(a.train.departureTime) - timeToMinutes(b.train.departureTime));
+        setState({ loading: false, error: "", options: options.slice(0, 10) });
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        setState({ loading: false, error: error instanceof Error ? error.message : "Nearby boarding search failed.", options: [] });
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [destination, date, classType, useRouteExplorerOnly]);
+
+  return (
+    <div className={softPanel("overflow-hidden rounded-[22px]")}>
+      <div className="border-b border-slate-200/80 bg-white p-5 dark:border-white/10 dark:bg-white/[0.055]">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-black uppercase text-emerald-700 dark:text-emerald-200">Nearby Station Optimizer</div>
+            <h3 className="mt-2 text-3xl font-black tracking-tight">{fullStationLabelFromCode(source, false)} access to {fullStationLabelFromCode(destination, false)}</h3>
+            <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
+              When IRCTC does not expose CKP directly, RailRoute checks nearby boarding stations, ranks total access + rail time, and keeps the station/timing view readable.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {CKP_MAJOR_DESTINATIONS.map((item) => (
+              <Link
+                key={item.code}
+                href={`/trains?source=CKP&destination=${item.code}&date=${date}&classType=${classType}`}
+                onClick={() => window.setTimeout(() => window.dispatchEvent(new Event("railroute-search-change")), 80)}
+                className={`rounded-full border px-3 py-2 text-xs font-black transition ${
+                  destination.toUpperCase() === item.code
+                    ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-slate-950"
+                    : "border-slate-200 bg-slate-50 text-slate-600 hover:border-cyan-300 dark:border-white/10 dark:bg-white/8 dark:text-slate-200"
+                }`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {useRouteExplorerOnly && <CkpRouteExplorerPanel destination={destination} date={date} classType={classType} />}
+
+      {!useRouteExplorerOnly && state.loading && <div className="p-5"><LoadingBlock label="Checking nearby IRCTC-compatible boarding options..." /></div>}
+      {!useRouteExplorerOnly && state.error && <div className="p-5 text-sm font-bold text-rose-600">{state.error}</div>}
+      {!useRouteExplorerOnly && !state.loading && state.options.length === 0 && (
+        <div className="p-5 text-sm font-bold text-slate-500">No nearby boarding options came back from the provider for this date.</div>
+      )}
+
+      {!useRouteExplorerOnly && <div className="divide-y divide-slate-200 dark:divide-white/10">
+        {state.options.map(({ boarding, arrival, train, totalMinutes, variants }, index) => {
+          const id = `${boarding.code}-${arrival.code}-${train.trainNo}-${index}`;
+          const routeOpen = openRoute === id;
+          const classes = train.classes?.length ? train.classes : ["SL", "3E", "3A", "2A", "1A"];
+          const railMinutes = durationToMinutes(train.duration);
+          const statusTone = availabilityCardTone(train.availability);
+          const journeyTone = journeyAccentTone(train.availability);
+          return (
+            <article key={id} className="bg-white p-5 transition hover:bg-slate-50 dark:bg-[#07111f] dark:hover:bg-[#0a1728]">
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-r-full bg-emerald-600 px-3 py-1 text-xs font-black text-white">Nearby Station</span>
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700 dark:bg-emerald-300/12 dark:text-emerald-100">{boarding.distanceKm} km from CKP</span>
+                    {arrival.distanceKm > 0 && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700 dark:bg-emerald-300/12 dark:text-emerald-100">{arrival.distanceKm} km from {destination}</span>}
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-white/10 dark:text-slate-200">Option {index + 1}</span>
+                  </div>
+                  <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)] lg:items-center">
+                    <div className="min-w-0">
+                      <h4 className="truncate text-2xl font-black tracking-tight">{trainNumberName(train)}</h4>
+                      <p className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">{boarding.access} · {boarding.buffer}</p>
+                    </div>
+
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-3">
+                      <div>
+                        <div className="text-sm font-black text-slate-500 dark:text-slate-400">{stationCompactLabel(boarding.code)}</div>
+                        <div className="mt-1 text-3xl font-black tracking-tight">{timeAmPm(train.departureTime)}</div>
+                        <div className="mt-1 text-sm font-black text-emerald-600 dark:text-emerald-200">{boarding.distanceKm} km from CKP</div>
+                      </div>
+                      <div className="pt-8 text-center">
+                        <div className={`flex items-center gap-2 text-sm font-black ${journeyTone.text}`}>
+                          <span className={`h-2 w-2 rounded-full ${journeyTone.dot}`} />
+                          <span>{railMinutes ? formatDurationLong(railMinutes) : train.duration}</span>
+                          <span className={`h-2 w-2 rounded-full ${journeyTone.dot}`} />
+                        </div>
+                        <div className={`mt-2 h-px w-28 ${journeyTone.line}`} />
+                      </div>
+                      <div>
+                        <div className="text-sm font-black text-slate-500 dark:text-slate-400">{stationCompactLabel(arrival.code)}</div>
+                        <div className="mt-1 text-3xl font-black tracking-tight">{timeAmPm(train.arrivalTime)}</div>
+                        {arrival.distanceKm > 0 && <div className="mt-1 text-sm font-black text-emerald-600 dark:text-emerald-200">{arrival.distanceKm} km from {destination}</div>}
+                      </div>
+                    </div>
+                  </div>
+
+                  {variants?.length > 1 && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span className="px-1 py-1 text-xs font-black uppercase text-slate-400">Other boarding choices</span>
+                      {variants.slice(1).map((variant: any) => (
+                        <span key={`${id}-${variant.boarding.code}-${variant.arrival.code}`} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-black text-slate-600 dark:border-white/10 dark:bg-white/8 dark:text-slate-200">
+                          {stationCompactLabel(variant.boarding.code)} {timeAmPm(variant.train.departureTime)} → {stationCompactLabel(variant.arrival.code)} {timeAmPm(variant.train.arrivalTime)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                    <div className="flex gap-3 overflow-x-auto pb-1">
+                      {classes.slice(0, 5).map((classCode: string) => (
+                        <button key={`${id}-${classCode}`} type="button" onClick={() => setClassView({ train: { ...train, classType: classCode }, classCode })} className={`h-24 min-w-44 rounded-2xl border p-3 text-left shadow-sm ${statusTone}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-black">{classCode}</span>
+                            <span className="text-sm font-black">{classFareText(train, classCode) || formatFare(CLASS_FARE_ESTIMATES[classCode] || trainFareAmount(train) || 520)}</span>
+                          </div>
+                          <div className="mt-5 text-sm font-black">{classAvailabilityStatus(train, classCode)}</div>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex shrink-0 flex-wrap justify-start gap-2 md:justify-end">
+                      <button type="button" onClick={() => setOpenRoute(routeOpen ? "" : id)} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700 transition hover:border-cyan-400 hover:text-cyan-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">
+                        {routeOpen ? "Hide schedule" : "Schedule"}
+                      </button>
+                      <button type="button" onClick={() => setClassView({ train, classCode: primaryClassCode(train, classType) })} className="rounded-full border border-cyan-300 bg-cyan-50 px-4 py-2 text-sm font-black text-cyan-800 transition hover:border-cyan-400 dark:bg-cyan-300/12 dark:text-cyan-100">Seats</button>
+                      <Link href={`/coach?class=${encodeURIComponent(train.classType || classType)}`} className="rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">Seat map</Link>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-start justify-end gap-4 xl:w-44">
+                  <div className="text-right">
+                    <button type="button" onClick={() => setOpenRoute(routeOpen ? "" : id)} className="text-sm font-black text-slate-600 underline underline-offset-4 transition hover:text-cyan-700 dark:text-slate-300 dark:hover:text-cyan-100">
+                      Schedule
+                    </button>
+                    <div className="mt-2 text-xs font-black text-slate-400">Total with access: {formatDurationLong(totalMinutes)}</div>
+                  </div>
+                </div>
+              </div>
+              {routeOpen && (
+                <div className="mt-4">
+                  <InlineRoutePanel trainNo={train.trainNo} train={train} />
+                  <div className="mt-3"><CoachPositionStrip train={train} /></div>
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>}
+      <AnimatePresence>
+        {classView && <ClassDetailModal train={classView.train} classCode={classView.classCode} journeyDate={date} onClose={() => setClassView(null)} />}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1583,12 +2706,12 @@ function PremiumTrainCard({
         <div>
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">Direct train</span>
-            <span className="rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">{train.punctualityScore || "Live ETA ready"}</span>
+            <span className="rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">IRCTC-compatible data</span>
           </div>
           <h3 className="mt-4 text-2xl font-black">{trainNumberName(train)}</h3>
           <p className="mt-1 text-sm font-bold text-slate-500 dark:text-slate-400">{train.trainType || "Express"} · {fullStationLabelFromCode(train.source)} to {fullStationLabelFromCode(train.destination)}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <span className={`rounded-full border px-3 py-1.5 text-xs font-black ${availabilityTone(train.availability)}`}>Live IRCTC seats: {liveSeatText(train)}</span>
+            <span className={`rounded-full border px-3 py-1.5 text-xs font-black ${availabilityTone(train.availability)}`}>IRCTC seats: {liveSeatText(train)}</span>
             <span className="rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1.5 text-xs font-black text-emerald-800 dark:border-emerald-300/25 dark:bg-emerald-300/12 dark:text-emerald-100">Rate: {liveFareText(train)}</span>
             <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-black text-slate-600 dark:border-white/10 dark:bg-white/8 dark:text-slate-300">{train.classType || "3A"} · IRCTC-compatible quota</span>
           </div>
@@ -1637,7 +2760,7 @@ function PremiumTrainCard({
           <div className={`mt-2 rounded-2xl p-3 text-xl font-black ${ticketDecision(train.availability).tone}`}>{ticketDecision(train.availability).label}</div>
           <div className="mt-3 grid gap-2">
             <div className={`rounded-2xl border p-3 text-sm font-black ${availabilityTone(train.availability)}`}>
-              <div className="text-[10px] uppercase opacity-70">Live IRCTC seats</div>
+              <div className="text-[10px] uppercase opacity-70">IRCTC seats</div>
               <div className="mt-1 text-lg">{liveSeatText(train)}</div>
             </div>
             <div className="rounded-2xl border border-emerald-300 bg-emerald-100 p-3 text-sm font-black text-emerald-800 dark:border-emerald-300/25 dark:bg-emerald-300/12 dark:text-emerald-100">
@@ -1675,7 +2798,7 @@ function InlineRoutePanel({ trainNo, train }: { trainNo: string; train: any }) {
     };
   }, [trainNo]);
 
-  const route = state.route.length ? state.route : [
+  const route = state.route.length ? state.route : train.route?.length ? train.route : [
     { code: train.source, departure: train.departureTime, arrival: "Start", halt: "-" },
     { code: train.destination, arrival: train.arrivalTime, departure: "End", halt: "-" },
   ];
@@ -1687,6 +2810,9 @@ function InlineRoutePanel({ trainNo, train }: { trainNo: string; train: any }) {
           <div className="text-xs font-black uppercase text-slate-400">Complete route</div>
           <div className="mt-1 text-lg font-black">{train.departureTime || "--:--"} → {train.arrivalTime || "--:--"}</div>
           <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">Showing every station returned by the IRCTC-compatible schedule endpoint.</div>
+          <div className="mt-2 rounded-2xl border border-amber-300/35 bg-amber-50 px-3 py-2 text-[11px] font-black text-amber-900 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100">
+            Platforms marked expected can change. Verify final platform on IRCTC, station boards, and announcements.
+          </div>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-black/20 dark:text-slate-300">{route.length} stops</span>
       </div>
@@ -1694,20 +2820,23 @@ function InlineRoutePanel({ trainNo, train }: { trainNo: string; train: any }) {
       {state.error && <div className="mt-4 text-sm font-bold text-rose-600">{state.error}</div>}
       <div className="mt-4 max-h-[560px] overflow-y-auto pr-1">
         <div className="grid gap-2 md:grid-cols-2">
-          {route.map((stop: any, index: number) => (
-            <div key={`${stop.code}-${index}`} className="rounded-2xl bg-slate-50 p-3 text-sm dark:bg-black/20">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="font-black">{stop.label || stationLabelFromCode(stop.code)}</div>
-                  <div className="mt-1 text-xs font-bold text-slate-500">Arr {stop.arrival || "--"} · Dep {stop.departure || "--"} · Halt {stop.halt || "-"}</div>
+          {route.map((stop: any, index: number) => {
+            const platform = platformText(stop, trainNo);
+            return (
+              <div key={`${stop.code}-${index}`} className="rounded-2xl bg-slate-50 p-3 text-sm dark:bg-black/20">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-black">{stop.label || stationLabelFromCode(stop.code)}</div>
+                    <div className="mt-1 text-xs font-bold text-slate-500">Arr {stop.arrival || "--"} · Dep {stop.departure || "--"} · Halt {stop.halt || "-"}</div>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-slate-500 dark:bg-white/10 dark:text-slate-300">#{index + 1}</span>
                 </div>
-                <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-slate-500 dark:bg-white/10 dark:text-slate-300">#{index + 1}</span>
+                <div className="mt-2 text-[11px] font-bold text-slate-400">
+                  {platform.label} {platform.value} · Day {stop.day || 1} · {stop.distance ?? "--"} km
+                </div>
               </div>
-              <div className="mt-2 text-[11px] font-bold text-slate-400">
-                Platform {stop.platform || "TBA"} · Day {stop.day || 1} · {stop.distance ?? "--"} km
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         {route.length > 20 && (
           <div className="sticky bottom-0 mt-3 rounded-2xl border border-slate-200 bg-white/90 p-3 text-center text-xs font-black text-slate-500 backdrop-blur dark:border-white/10 dark:bg-[#101725]/90 dark:text-slate-300">
@@ -1737,7 +2866,7 @@ function ClassDetailModal({ train, classCode, journeyDate, onClose }: { train: a
       const providerStatus = firstAvailability?.availabilityText || firstAvailability?.text || firstAvailability?.status || providerError || fallbackAvailability?.text || train.availability;
       setClassState({
         loading: false,
-        error: providerError ? "IRCTC returned this class/date as unavailable. Recheck before booking." : "",
+        error: providerError ? "Provider returned this class/date as unavailable. Recheck before booking." : "",
         fare: fareValue ? `₹${String(fareValue).replace(/^₹/, "")}` : estimatedClassFare(classCode, train.fare),
         availability: readableRailStatus(providerStatus) || "Check seats",
       });
@@ -1745,7 +2874,7 @@ function ClassDetailModal({ train, classCode, journeyDate, onClose }: { train: a
       if (!mounted) return;
       setClassState({
         loading: false,
-        error: "Live class data unavailable. Showing cached estimate.",
+        error: "Class data unavailable. Showing cached estimate.",
         fare: fallbackAvailability?.fare ? `₹${fallbackAvailability.fare}` : estimatedClassFare(classCode, train.fare),
         availability: readableRailStatus(fallbackAvailability?.text || train.availability) || "Check seats",
       });
@@ -1770,7 +2899,7 @@ function ClassDetailModal({ train, classCode, journeyDate, onClose }: { train: a
           <div className="space-y-3">
             {[
               ["Fare", classState.loading ? "Checking IRCTC..." : classState.fare],
-              ["Availability", classState.loading ? "Checking live quota..." : classState.availability],
+              ["Availability", classState.loading ? "Checking quota..." : classState.availability],
               ["Quota", "GN · Tatkal ready"],
               ["Coach options", classCode === "1A" ? "H1 · HA1 · Cabin/Coupe" : classCode === "2A" ? "A1 · A2 · HA1" : classCode === "SL" ? "S1 · S2 · S3" : "B1 · B2 · B3"],
             ].map(([label, value]) => (
@@ -1779,9 +2908,9 @@ function ClassDetailModal({ train, classCode, journeyDate, onClose }: { train: a
             <div className={`rounded-3xl p-4 text-sm font-black ${decision.tone}`}>
               Ticket check: {classState.loading ? "Checking..." : decision.label}
             </div>
-            <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="flex items-center justify-center rounded-3xl bg-slate-950 p-4 text-sm font-black text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
-              Book / verify this ticket on IRCTC
-            </a>
+            <div className="rounded-3xl border border-cyan-300/30 bg-cyan-50 p-4 text-sm font-black leading-6 text-cyan-900 dark:bg-cyan-300/10 dark:text-cyan-100">
+              Quota is checked inside RailRoute. Exact berth numbers are assigned after booking/charting, so occupied berth positions cannot be official before ticketing.
+            </div>
             {classState.error && <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100">{classState.error}</div>}
           </div>
           <CoachExplorer initialClass={classCode} embedded train={train} />
@@ -1798,6 +2927,9 @@ function SplitJourneyCard({ split }: { split: any }) {
   const leg1Fare = split.leg1Fare || leg1.fare || "₹--";
   const leg2Fare = split.leg2Fare || leg2.fare || "₹--";
   const totalDuration = splitTotalDuration(split);
+  const hubCode = split.hubStation || leg1.destination || leg2.source || "CNB";
+  const hubArrivalPlatform = expectedPlatformNumber(hubCode, leg1.trainNo);
+  const hubDeparturePlatform = expectedPlatformNumber(hubCode, leg2.trainNo);
   return (
     <article className={softPanel("rounded-[30px] p-5")}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1846,9 +2978,11 @@ function SplitJourneyCard({ split }: { split: any }) {
         <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-300/20 dark:bg-violet-300/10">
           <div className="text-sm text-slate-500">Layover section</div>
           <div className="mt-1 text-3xl font-black">{split.layoverDuration || "--"}</div>
-          <div className="mt-2 text-sm font-semibold text-slate-500 dark:text-slate-400">Connection at {fullStationLabelFromCode(split.hubStation || leg1.destination || leg2.source || "CNB")}</div>
+          <div className="mt-2 text-sm font-semibold text-slate-500 dark:text-slate-400">Connection at {fullStationLabelFromCode(hubCode)}</div>
           <div className="mt-3 text-xs font-black text-violet-700 dark:text-violet-100">Layover window: {leg1.arrivalTime || "--:--"} to {leg2.departureTime || "--:--"}</div>
-          <div className="mt-3 text-xs font-bold text-slate-500 dark:text-slate-300">Platform change: 5 → 10 · walking estimate 8 minutes · use foot overbridge</div>
+          <div className="mt-3 text-xs font-bold text-slate-500 dark:text-slate-300">
+            Expected platform: arrival PF {hubArrivalPlatform} → departure PF {hubDeparturePlatform}. Platform can change; verify on IRCTC and station boards.
+          </div>
           <div className="mt-3 rounded-2xl bg-white/70 p-3 text-xs font-black text-violet-800 dark:bg-black/20 dark:text-violet-100">Full journey time: {totalDuration}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
@@ -1877,6 +3011,86 @@ function SplitJourneyCard({ split }: { split: any }) {
         <CoachPositionStrip train={leg1} />
         <CoachPositionStrip train={leg2} />
       </div>
+      {routeTrain && (
+        <div className="mt-4 rounded-[28px] border border-cyan-300/30 bg-cyan-50/70 p-3 dark:border-cyan-300/20 dark:bg-cyan-300/10">
+          <div className="mb-3 flex items-center justify-between gap-3 px-1">
+            <div className="text-xs font-black uppercase text-cyan-800 dark:text-cyan-100">Selected leg route</div>
+            <button type="button" onClick={() => setRouteTrain(null)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-black text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">Hide</button>
+          </div>
+          <InlineRoutePanel trainNo={routeTrain.trainNo} train={routeTrain} />
+        </div>
+      )}
+    </article>
+  );
+}
+
+function MultiSplitJourneyCard({ split }: { split: any }) {
+  const legs = split.legs || [];
+  const [routeTrain, setRouteTrain] = useState<any | null>(null);
+  const path = legs.length
+    ? [legs[0]?.source, ...split.interchangeStations, legs[legs.length - 1]?.destination].filter(Boolean)
+    : split.interchangeStations || [];
+
+  return (
+    <article className={softPanel("rounded-[30px] p-5")}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <span className="rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">Reliable multi-split route</span>
+          <h3 className="mt-3 text-2xl font-black">
+            {path.map((code: string) => fullStationLabelFromCode(code, false)).join(" → ")}
+          </h3>
+          <p className="mt-2 text-sm font-bold text-slate-500 dark:text-slate-400">
+            Uses smaller-station gateway junctions first, then long-distance IRCTC-compatible legs.
+          </p>
+        </div>
+        <div className="rounded-2xl bg-slate-50 p-4 text-sm font-black dark:bg-black/20">
+          <div className="text-[11px] uppercase text-slate-400">Total</div>
+          <div className="text-xl">{formatFare(split.totalFare)} · {split.totalDuration || "--"}</div>
+          <div className="mt-1 text-[11px] font-black text-slate-400">Score {split.score || "--"} · {split.combinedConfirmationChance || "--"}% chance</div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {(split.layovers || []).map((layover: any) => (
+          <span key={layover.station} className="rounded-full bg-violet-100 px-3 py-2 text-xs font-black text-violet-800 dark:bg-violet-300/12 dark:text-violet-100">
+            {fullStationLabelFromCode(layover.station, false)} layover: {layover.duration}
+          </span>
+        ))}
+        <span className="rounded-full bg-amber-100 px-3 py-2 text-xs font-black text-amber-900 dark:bg-amber-300/12 dark:text-amber-100">
+          Expected platforms can change; verify before boarding
+        </span>
+        <a href={IRCTC_TRAIN_SEARCH_URL} target="_blank" rel="noreferrer" className="rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white dark:bg-white dark:text-slate-950">Verify each leg on IRCTC</a>
+      </div>
+
+      <div className="mt-5 grid gap-3 lg:grid-cols-3">
+        {legs.map((leg: any, index: number) => (
+          <div key={`${leg.trainNo}-${index}`} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm text-slate-500">Journey {index + 1}</div>
+                <h4 className="mt-1 text-lg font-black">{trainNumberName(leg, `Leg ${index + 1} train`)}</h4>
+                <div className="mt-1 text-xs font-black text-slate-400">{fullStationLabelFromCode(leg.source, false)} → {fullStationLabelFromCode(leg.destination, false)}</div>
+              </div>
+              <span className="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">{liveFareText(leg)}</span>
+            </div>
+            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-black dark:bg-black/20">
+              {leg.departureTime || "--:--"} → {leg.arrivalTime || "--:--"} · {leg.duration || "--"}
+            </div>
+            <div className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+              Expected platform: start PF {expectedPlatformNumber(leg.source, leg.trainNo)} · end PF {expectedPlatformNumber(leg.destination, leg.trainNo)}
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${availabilityTone(leg.availability)}`}>{readableRailStatus(leg.availability) || "Check seats"}</span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-black text-slate-700 dark:bg-white/10 dark:text-slate-200">{leg.classType || "3A"}</span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => setRouteTrain(leg)} className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-1.5 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">Route</button>
+              <Link href={`/coach?class=${encodeURIComponent(leg.classType || "3A")}`} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-black text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-200">Coach layout</Link>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {routeTrain && (
         <div className="mt-4 rounded-[28px] border border-cyan-300/30 bg-cyan-50/70 p-3 dark:border-cyan-300/20 dark:bg-cyan-300/10">
           <div className="mb-3 flex items-center justify-between gap-3 px-1">
@@ -1920,7 +3134,7 @@ function CoachExplorer({ initialClass = "3A", embedded = false, train }: { initi
           <div className="text-[11px] font-black uppercase text-slate-400">Current train coach explorer</div>
           <div className="mt-1 text-lg font-black">{trainNumberName(train)}</div>
           <div className="mt-2 flex flex-wrap gap-2">
-            <span className={`rounded-full border px-3 py-1.5 text-xs font-black ${availabilityTone(train.availability)}`}>Live seats: {liveSeatText(train)}</span>
+            <span className={`rounded-full border px-3 py-1.5 text-xs font-black ${availabilityTone(train.availability)}`}>Seats: {liveSeatText(train)}</span>
             <span className="rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1.5 text-xs font-black text-emerald-800 dark:border-emerald-300/25 dark:bg-emerald-300/12 dark:text-emerald-100">Rate: {liveFareText(train)}</span>
           </div>
         </div>
@@ -1941,6 +3155,12 @@ function CoachExplorer({ initialClass = "3A", embedded = false, train }: { initi
             <p className="mt-1 text-xs font-black text-cyan-700 dark:text-cyan-200">Exploring all {seatGroups.length} {["CC", "EC"].includes(classType) ? "rows" : classType === "1A" ? "cabins/coupes" : "bays"} in {coach}</p>
           </div>
           <Train className="h-5 w-5 text-cyan-600 dark:text-cyan-200" />
+        </div>
+        <div className="mb-4 flex flex-wrap gap-2">
+          <span className="rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-[11px] font-black text-emerald-800 dark:bg-emerald-300/12 dark:text-emerald-100">Available/selectable</span>
+          <span className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-[11px] font-black text-amber-800 dark:bg-amber-300/12 dark:text-amber-100">RAC/WL</span>
+          <span className="rounded-full border border-slate-300 bg-slate-200 px-3 py-1 text-[11px] font-black text-slate-600 dark:border-white/10 dark:bg-white/10 dark:text-slate-300">Occupied/blocked layout</span>
+          <span className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-1 text-[11px] font-black text-cyan-800 dark:bg-cyan-300/12 dark:text-cyan-100">Exact berth numbers are post-booking/chart only</span>
         </div>
         <div className="grid gap-3 xl:grid-cols-2">
           {seatGroups.map((group) => (
@@ -1982,29 +3202,6 @@ function CoachExplorer({ initialClass = "3A", embedded = false, train }: { initi
           ))}
         </div>
       </div>
-    </div>
-  );
-}
-
-function LiveTrackingTool() {
-  const [trainNo, setTrainNo] = useState("12395");
-  const [state, setState] = useState<{ loading: boolean; error: string; data: any | null }>({ loading: false, error: "", data: null });
-  async function track() {
-    setState({ loading: true, error: "", data: null });
-    try {
-      setState({ loading: false, error: "", data: await postJson("/api/live", { trainNo, date: todayIso(0) }) });
-    } catch (error) {
-      setState({ loading: false, error: error instanceof Error ? error.message : "Live tracking failed.", data: null });
-    }
-  }
-  return (
-    <div className={softPanel("mx-auto max-w-7xl rounded-[32px] p-5")}>
-      <div className="flex flex-col gap-3 sm:flex-row"><input value={trainNo} onChange={(e) => setTrainNo(e.target.value.replace(/\D/g, "").slice(0, 5))} className="h-13 flex-1 rounded-2xl border border-slate-200 bg-white px-4 font-bold dark:border-white/10 dark:bg-white/8 dark:text-white" /><button onClick={track} className="rounded-2xl bg-slate-950 px-6 font-black text-white dark:bg-white dark:text-slate-950">{state.loading ? "Tracking..." : "Track Live"}</button></div>
-      <div className="mt-6 grid gap-5 lg:grid-cols-[1fr_1.2fr]">
-        <div className="rounded-3xl bg-slate-50 p-5 dark:bg-black/20"><h3 className="text-2xl font-black">Current station</h3><p className="mt-2 text-slate-500 dark:text-slate-400">Live provider data appears here with graceful fallback.</p><div className="mt-5 text-4xl font-black">On route</div><div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10"><div className="h-full w-[58%] rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400" /></div></div>
-        <IndiaMapShowcase source="PNBE" destination="JP" via={["NDLS"]} />
-      </div>
-      {state.error && <p className="mt-4 font-bold text-rose-600">{state.error}</p>}
     </div>
   );
 }
@@ -2053,7 +3250,6 @@ export function RailRouteToolPage({ tool }: { tool: ToolKind }) {
         </>
       )}
       {tool === "train-search" && <section className="px-4 pb-16 sm:px-6"><TrainSearchPanel /></section>}
-      {tool === "live" && <section className="px-4 pb-16 sm:px-6"><LiveTrackingTool /></section>}
       {tool === "pnr" && <section className="px-4 pb-16 sm:px-6"><PnrTool /></section>}
       {tool === "fare" && <section className="px-4 pb-16 sm:px-6"><FareTool /></section>}
       {tool === "map" && <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6"><IndiaMapShowcase /></section>}

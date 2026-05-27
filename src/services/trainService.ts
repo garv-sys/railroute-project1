@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { searchDirectTrains, checkSeatAvailability, getTrainSchedule } from './irctcService';
+import STATION_STATES from '@/data/station_states.json';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
@@ -37,7 +38,6 @@ export interface TrainResult {
   alternateStationHint?: string;
   
   // Premium Redesign Fields
-  rating?: number;
   features?: string[];
   trainType?: "Vande Bharat" | "Rajdhani" | "Shatabdi" | "Duronto" | "Superfast" | "Express";
   cleanlinessScore?: string;
@@ -47,6 +47,7 @@ export interface TrainResult {
   runsOnDays?: boolean[]; // [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
   classes?: string[]; // ["SL", "3E", "3A", "2A", "1A"]
   classAvailability?: Record<string, ClassAvailabilityItem[]>; // Map classCode to 6-day availability array
+  route?: any[];
 }
 
 export interface SplitRouteResult {
@@ -64,6 +65,17 @@ export interface SplitRouteResult {
   isHeritage?: boolean; // true for UNESCO heritage railway legs (toy trains etc.)
 }
 
+export interface MultiSplitRouteResult {
+  legs: TrainResult[];
+  interchangeStations: string[];
+  interchangeStationNames: string[];
+  layovers: { station: string; duration: string; hours: number }[];
+  totalFare: number;
+  totalDuration: string;
+  score: number;
+  combinedConfirmationChance: number;
+}
+
 function parseTime(timeStr: string, baseDate: string) {
   const [day, month, year] = baseDate.split('-');
   const [hours, minutes] = timeStr.split(':');
@@ -74,6 +86,29 @@ function formatDuration(ms: number) {
   const hours = Math.floor(ms / (1000 * 60 * 60));
   const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
   return `${hours}h ${minutes}m`;
+}
+
+function parseDurationMins(value: string) {
+  if (!value || value === 'N/A') return 0;
+  let hours = 0;
+  let mins = 0;
+  if (value.includes(':')) {
+    const parts = value.replace('hrs', '').trim().split(':');
+    hours = parseInt(parts[0], 10) || 0;
+    mins = parseInt(parts[1], 10) || 0;
+  } else if (value.includes('h')) {
+    const hMatch = value.match(/(\d+)\s*h/);
+    const mMatch = value.match(/(\d+)\s*m/);
+    if (hMatch) hours = parseInt(hMatch[1], 10);
+    if (mMatch) mins = parseInt(mMatch[1], 10);
+  }
+  return hours * 60 + mins;
+}
+
+function formatDurationMinutes(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours}h ${String(mins).padStart(2, '0')}m`;
 }
 
 function formatDateStr(dateStr: string) {
@@ -93,6 +128,10 @@ function normalizeStationCode(code: string) {
     'NEW DELHI': 'NDLS',
     'PATNA': 'PNBE',
     'PATNA JN': 'PNBE',
+    'CHAKRADHARPUR': 'CKP',
+    'CHAKRADHARPUR JN': 'CKP',
+    'CHUKUNDPUR': 'CKP',
+    'CHUKUNDARPUR': 'CKP',
     'BOM': 'CSMT',
     'MUMBAI': 'CSMT',
     'CAL': 'HWH',
@@ -109,6 +148,122 @@ function normalizeStationCode(code: string) {
   };
   const upper = (code || '').toUpperCase().trim();
   return map[upper] || upper;
+}
+
+function stationCodeValue(value: any) {
+  if (!value) return '';
+  if (typeof value === 'string' || typeof value === 'number') return normalizeStationCode(String(value));
+  if (typeof value === 'object') {
+    return normalizeStationCode(String(
+      value.code ||
+      value.stnCode ||
+      value.stationCode ||
+      value.station_code ||
+      value.from_stn_code ||
+      value.to_stn_code ||
+      value.name ||
+      ''
+    ));
+  }
+  return '';
+}
+
+function rawTrainSource(train: any) {
+  return stationCodeValue(train.from_stn_code || train.from_station_code || train.fromStnCode || train.train_src || train.source);
+}
+
+function rawTrainDestination(train: any) {
+  return stationCodeValue(train.to_stn_code || train.to_station_code || train.toStnCode || train.train_dstn || train.dest || train.destination);
+}
+
+function rawTrainDeparture(train: any) {
+  return train.from_time || train.from_std || train.departureTime || '';
+}
+
+function rawTrainArrival(train: any) {
+  return train.to_time || train.to_sta || train.arrivalTime || '';
+}
+
+function trainRouteCodes(train: any) {
+  const route = Array.isArray(train.route) ? train.route : Array.isArray(train.train_route) ? train.train_route : [];
+  return route
+    .map((stop: any) => stationCodeValue(stop?.code || stop?.stnCode || stop?.stationCode || stop?.station_code || stop?.stn_code))
+    .filter(Boolean);
+}
+
+function trainMatchesRequestedLeg(train: any, source: string, dest: string) {
+  const from = rawTrainSource(train);
+  const to = rawTrainDestination(train);
+  if (from === source && to === dest) return true;
+
+  const route = trainRouteCodes(train);
+  if (route.length > 0) {
+    const sourceIndex = route.indexOf(source);
+    const destIndex = route.indexOf(dest);
+    return sourceIndex !== -1 && destIndex !== -1 && sourceIndex < destIndex;
+  }
+
+  if (!from && !to) return true;
+  return false;
+}
+
+const STATE_GATEWAY_HUBS: Record<string, string[]> = {
+  Jharkhand: ['TATA', 'RNC', 'DHN', 'ROU', 'BKSC', 'ASN'],
+  Odisha: ['ROU', 'BBS', 'CTC', 'SBP', 'JSG'],
+  Bihar: ['PNBE', 'DNR', 'PPTA', 'GAYA', 'MFP'],
+  Rajasthan: ['JP', 'KOTA', 'AII', 'JU', 'BKN'],
+  'West Bengal': ['HWH', 'SDAH', 'KOAA', 'NJP', 'ASN'],
+  'Uttar Pradesh': ['DDU', 'PRYJ', 'CNB', 'LKO', 'BSB', 'GZB'],
+  Delhi: ['NDLS', 'NZM', 'DLI', 'ANVT'],
+  Maharashtra: ['CSMT', 'LTT', 'BDTS', 'KYN', 'NGP'],
+  'Madhya Pradesh': ['BPL', 'ET', 'JBP', 'KTE', 'GWL'],
+  Gujarat: ['ADI', 'BRC', 'ST', 'RJT'],
+  Karnataka: ['SBC', 'YPR', 'SMVB', 'UBL', 'MYS'],
+  'Tamil Nadu': ['MAS', 'MS', 'TBM', 'CBE', 'MDU'],
+  Telangana: ['SC', 'HYB', 'KCG', 'WL'],
+  'Andhra Pradesh': ['BZA', 'VSKP', 'GNT', 'TPTY'],
+};
+
+const NATIONAL_SPLIT_HUBS = ['NDLS', 'NZM', 'DDU', 'CNB', 'PRYJ', 'BPL', 'KOTA', 'JP', 'NGP', 'ET', 'BZA', 'HWH'];
+const CKP_PRIORITY_HUBS = ['RNC', 'TATA', 'ROU', 'DDU', 'NDLS', 'NZM', 'DLI', 'ANVT', 'PNBE', 'DNR', 'KOTA', 'AII', 'DHN', 'BKSC'];
+
+function stationStateForRouting(code: string) {
+  return (STATION_STATES as Record<string, string>)[code.toUpperCase()] || '';
+}
+
+function endpointGatewayHubs(code: string) {
+  const normalized = normalizeStationCode(code);
+  const state = stationStateForRouting(normalized);
+  const stateHubs = state ? STATE_GATEWAY_HUBS[state] || [] : [];
+  return Array.from(new Set([normalized, ...stateHubs])).filter(Boolean).slice(0, 6);
+}
+
+function hubLabel(code: string) {
+  const labels: Record<string, string> = {
+    TATA: 'Tatanagar Junction (TATA)',
+    RNC: 'Ranchi Junction (RNC)',
+    DHN: 'Dhanbad Junction (DHN)',
+    ROU: 'Rourkela Junction (ROU)',
+    BKSC: 'Bokaro Steel City (BKSC)',
+    ASN: 'Asansol Junction (ASN)',
+    NDLS: 'New Delhi (NDLS)',
+    NZM: 'Hazrat Nizamuddin (NZM)',
+    DDU: 'Pt. DDU Junction (DDU)',
+    DLI: 'Old Delhi Junction (DLI)',
+    ANVT: 'Anand Vihar Terminal (ANVT)',
+    PNBE: 'Patna Junction (PNBE)',
+    DNR: 'Danapur (DNR)',
+    CNB: 'Kanpur Central (CNB)',
+    PRYJ: 'Prayagraj Junction (PRYJ)',
+    BPL: 'Bhopal Junction (BPL)',
+    KOTA: 'Kota Junction (KOTA)',
+    JP: 'Jaipur Junction (JP)',
+    NGP: 'Nagpur Junction (NGP)',
+    ET: 'Itarsi Junction (ET)',
+    BZA: 'Vijayawada Junction (BZA)',
+    HWH: 'Howrah Junction (HWH)',
+  };
+  return labels[code] || `${code} Junction`;
 }
 
 // Generates a highly realistic 6-day availability slide for any class on a train, integrating live API queries when available
@@ -291,7 +446,7 @@ async function generate6DayAvailability(
   }
 }
 
-// Enriches a train with actual/realistic availability and adds the custom premium features
+// Enriches a train with provider availability and lightweight display metadata.
 async function enrichWithLiveAvailability(train: any, date: string, classType: string): Promise<TrainResult> {
   const trainNo = train.train_no || train.train_number || train.trainno || train.trainNumber;
   const source = train.from_stn_code || train.from_station_code || train.fromStnCode || train.train_src || train.source;
@@ -315,13 +470,13 @@ async function enrichWithLiveAvailability(train: any, date: string, classType: s
     availability: 'Checking...',
     fare: '₹--',
     classType: targetClass,
-    rating: 4.2,
     features: ["Bio-Toilets", "Charging Ports", "Pantry Car Available"],
     trainType: "Express",
     cleanlinessScore: "Good",
     punctualityScore: "88% On-Time",
     classes: ["SL", "3E", "3A", "2A", "1A"], // Default IRCTC classes
-    runsOnDays: [true, true, true, true, true, true, true] // Default Mon-Sun daily
+    runsOnDays: [true, true, true, true, true, true, true], // Default Mon-Sun daily
+    route: train.route || []
   };
 
   const actualTrainName = train.train_name || train.trainName || '';
@@ -342,7 +497,6 @@ async function enrichWithLiveAvailability(train: any, date: string, classType: s
     baseResult.duration = matchingPreset.duration;
     baseResult.departureTime = matchingPreset.depTime;
     baseResult.arrivalTime = matchingPreset.arrTime;
-    baseResult.rating = matchingPreset.rating;
     baseResult.features = matchingPreset.features;
     baseResult.cleanlinessScore = matchingPreset.cleanliness;
     baseResult.punctualityScore = matchingPreset.punctuality;
@@ -354,41 +508,35 @@ async function enrichWithLiveAvailability(train: any, date: string, classType: s
     const upName = baseResult.trainName.toUpperCase();
     if (upName.includes("VANDE BHARAT") || baseResult.trainNo.startsWith("206") || baseResult.trainNo.startsWith("223")) {
       baseResult.trainType = "Vande Bharat";
-      baseResult.rating = 4.9;
       baseResult.features = ["160 km/h Speed", "Executive Seats", "Premium Catering", "Wi-Fi Onboard", "Automated Security"];
       baseResult.cleanlinessScore = "Outstanding";
       baseResult.punctualityScore = "99% On-Time";
       baseResult.classes = ["CC", "EC"];
     } else if (upName.includes("RAJDHANI") || baseResult.trainNo.startsWith("1230") || baseResult.trainNo.startsWith("1295")) {
       baseResult.trainType = "Rajdhani";
-      baseResult.rating = 4.8;
       baseResult.features = ["Premium Meals Included", "Bedding Provided", "High Speed", "Silent Cabin", "Showers in 1A"];
       baseResult.cleanlinessScore = "Excellent";
       baseResult.punctualityScore = "98% On-Time";
       baseResult.classes = ["3A", "2A", "1A"];
     } else if (upName.includes("SHATABDI")) {
       baseResult.trainType = "Shatabdi";
-      baseResult.rating = 4.7;
       baseResult.features = ["Ergonomic Chair Car", "Free Water/Newspaper", "Catering Service", "Fast Day Transit"];
       baseResult.cleanlinessScore = "Excellent";
       baseResult.punctualityScore = "96% On-Time";
       baseResult.classes = ["CC", "EC"];
     } else if (upName.includes("DURONTO")) {
       baseResult.trainType = "Duronto";
-      baseResult.rating = 4.6;
       baseResult.features = ["Non-Stop Technical Runs", "Pantry Onboard", "Clean Sleeper Coaches", "Bedding Available"];
       baseResult.cleanlinessScore = "Very Good";
       baseResult.punctualityScore = "94% On-Time";
       baseResult.classes = ["SL", "3A", "2A", "1A"];
     } else if (upName.includes("SUPERFAST") || upName.includes("SF EXP") || upName.includes("SK EXP")) {
       baseResult.trainType = "Superfast";
-      baseResult.rating = 4.4;
       baseResult.features = ["Pantry Car", "E-Catering Available", "charging ports", "Bio-Toilets"];
       baseResult.cleanlinessScore = "Good";
       baseResult.punctualityScore = "92% On-Time";
     } else {
       baseResult.trainType = "Express";
-      baseResult.rating = 4.1;
       baseResult.features = ["Bio-Toilets", "USB Ports", "Standard Catering"];
       baseResult.cleanlinessScore = "Standard";
       baseResult.punctualityScore = "89% On-Time";
@@ -474,6 +622,21 @@ const SEARCH_TRAINS_CACHE_TTL_MS = 2 * 60 * 1000;
 
 // STATIC_FALLBACK lives outside searchTrainsSmart so it can be referenced by HARDCODED_SPLIT_ROUTES too
 const STATIC_FALLBACK: Record<string, any[]> = {
+  // ── Jharkhand / small-station gateway legs ─────────────────────────────
+  'CKP_TATA': [
+    { train_no: '18190', train_name: 'CKP TATA PASSENGER', from_stn_code: 'CKP', to_stn_code: 'TATA', from_time: '07:30', to_time: '09:00', travel_time: '01:30 hrs', running_days: '1111111', distance: '62', route: [
+      { code: 'CKP', arrival: 'Start', departure: '07:30', halt: '-', distance: 0, day: 1 },
+      { code: 'SINI', arrival: '08:12', departure: '08:14', halt: '2 min', distance: 36, day: 1 },
+      { code: 'TATA', arrival: '09:00', departure: 'End', halt: '-', distance: 62, day: 1 },
+    ] },
+  ],
+  'CKP_ROU': [
+    { train_no: '18109', train_name: 'CKP ROU EXPRESS', from_stn_code: 'CKP', to_stn_code: 'ROU', from_time: '19:28', to_time: '20:47', travel_time: '01:19 hrs', running_days: '1111111', distance: '101', route: [
+      { code: 'CKP', arrival: 'Start', departure: '19:28', halt: '-', distance: 0, day: 1 },
+      { code: 'MOU', arrival: '19:55', departure: '19:57', halt: '2 min', distance: 35, day: 1 },
+      { code: 'ROU', arrival: '20:47', departure: 'End', halt: '-', distance: 101, day: 1 },
+    ] },
+  ],
   // ── Shimla gateway ──────────────────────────────────────────────────────
   'KLK_SML': [{ train_no: '52457', train_name: 'KLK SML EXPRESS', from_stn_code: 'KLK', to_stn_code: 'SML', from_time: '05:10', to_time: '10:20', travel_time: '05:10 hrs', running_days: '1111111', distance: '96', _isHeritage: true }],
   'SML_KLK': [{ train_no: '52458', train_name: 'SML KLK EXPRESS', from_stn_code: 'SML', to_stn_code: 'KLK', from_time: '10:30', to_time: '17:30', travel_time: '07:00 hrs', running_days: '1111111', distance: '96', _isHeritage: true }],
@@ -587,6 +750,8 @@ async function searchTrainsSmart(source: string, dest: string, date: string) {
       searchTrainsCache[cacheKey] = { data: [], timestamp: Date.now() };
       return [];
     }
+
+    trains = trains.filter((train) => trainMatchesRequestedLeg(train, source, dest));
 
     if (!trains.length) {
       console.warn(`IRCTC returned no available trains between ${source} and ${dest} for ${date}. Returning empty.`);
@@ -744,6 +909,17 @@ export async function checkDirectTrains(source: string, dest: string, date: stri
 }
 
 const STATION_COORDINATES: Record<string, { lat: number, lon: number }> = {
+  // Chakradharpur / Jharkhand corridor
+  'CKP':  { lat: 22.6773, lon: 85.6289 },
+  'TATA': { lat: 22.7680, lon: 86.2029 },
+  'SINI': { lat: 22.7930, lon: 85.9650 },
+  'CNI':  { lat: 22.9570, lon: 86.0530 },
+  'KND':  { lat: 22.8510, lon: 86.0520 },
+  'ROU':  { lat: 22.2604, lon: 84.8536 },
+  'RNC':  { lat: 23.3498, lon: 85.3344 },
+  'DHN':  { lat: 23.7957, lon: 86.4304 },
+  'BKSC': { lat: 23.6693, lon: 86.1511 },
+  'ASN':  { lat: 23.6889, lon: 86.9661 },
   // Patna cluster
   'PNBE': { lat: 25.6026, lon: 85.1376 },
   'PPTA': { lat: 25.6120, lon: 85.0880 },
@@ -842,9 +1018,16 @@ function getAirDistance(stn1: string, stn2: string): number {
   return R * c;
 }
 
-export async function findSmartRoutes(source: string, dest: string, date: string, classType: string = 'Any', directTrains: any[] = []): Promise<SplitRouteResult[]> {
+export async function findSmartRoutes(source: string, dest: string, date: string, classType: string = 'Any', directTrains: any[] = [], preferredHubInput: string = ''): Promise<SplitRouteResult[]> {
   source = normalizeStationCode(source);
   dest = normalizeStationCode(dest);
+  const preferredHub = normalizeStationCode(preferredHubInput);
+  const hasPreferredHub = Boolean(preferredHub && preferredHub !== source && preferredHub !== dest);
+
+  const prioritizePreferredHub = (hubs: string[]) => {
+    const next = hasPreferredHub ? [preferredHub, ...hubs] : hubs;
+    return Array.from(new Set(next)).filter((hub) => hub && hub !== source && hub !== dest);
+  };
 
   try {
     const formattedDate = formatDateStr(date);
@@ -856,7 +1039,7 @@ export async function findSmartRoutes(source: string, dest: string, date: string
     // ──────────────────────────────────────────────────────────────────────
     const hardcodedKey = `${source}_${dest}`;
     const hardcodedCandidates = HARDCODED_SPLIT_ROUTES[hardcodedKey];
-    if (hardcodedCandidates && hardcodedCandidates.length > 0) {
+    if (!hasPreferredHub && hardcodedCandidates && hardcodedCandidates.length > 0) {
       console.log(`[Hardcoded Routes] Using verified split routes for ${source} → ${dest} via ${hardcodedCandidates.map((r: any) => r.hub).join(', ')}`);
       const hubNamesLocal: Record<string, string> = {
         'KLK': 'Kalka Junction (KLK) 🏔️ Heritage Rail Gateway',
@@ -941,8 +1124,19 @@ export async function findSmartRoutes(source: string, dest: string, date: string
     if (destGateways.length > 0) hubsToTry.unshift(...destGateways);
     if (srcGateways.length  > 0) hubsToTry.push(...srcGateways);
 
+    const sourceRegionalGateways = endpointGatewayHubs(source)
+      .filter((hub) => hub !== source && hub !== dest);
+    const destRegionalGateways = endpointGatewayHubs(dest)
+      .filter((hub) => hub !== source && hub !== dest);
+    if (source === 'CKP' || dest === 'CKP') {
+      hubsToTry.unshift(...CKP_PRIORITY_HUBS);
+    }
+    hubsToTry.unshift(...sourceRegionalGateways.slice(0, 5));
+    hubsToTry.push(...destRegionalGateways.slice(0, 4));
+
     // Deduplicate and prune for speed (gateway hubs always come first)
-    hubsToTry = Array.from(new Set(hubsToTry)).slice(0, 10);
+    const hubLimit = source === 'CKP' || dest === 'CKP' ? 16 : hasPreferredHub ? 12 : 10;
+    hubsToTry = prioritizePreferredHub(hubsToTry).slice(0, hubLimit);
 
     // Dynamic hub selection from active routes
     try {
@@ -964,7 +1158,7 @@ export async function findSmartRoutes(source: string, dest: string, date: string
                   intermediate[Math.floor(intermediate.length * 0.66)]
                 ].filter(Boolean);
                 
-                hubsToTry = Array.from(new Set([...dynamicHubs, ...hubsToTry])).slice(0, 6);
+                hubsToTry = prioritizePreferredHub([...dynamicHubs, ...hubsToTry]).slice(0, source === 'CKP' || dest === 'CKP' ? 12 : hasPreferredHub ? 8 : 6);
                 console.log(`[Smart Routing] Dynamic geographical hubs:`, dynamicHubs);
                 break; 
               }
@@ -984,7 +1178,7 @@ export async function findSmartRoutes(source: string, dest: string, date: string
         if (hub === source || hub === dest) return;
 
         const directAirDist = getAirDistance(source, dest);
-        if (directAirDist > 0) {
+        if (directAirDist > 0 && hub !== preferredHub) {
           const leg1AirDist = getAirDistance(source, hub);
           const leg2AirDist = getAirDistance(hub, dest);
           if (leg1AirDist > 0 && leg2AirDist > 0) {
@@ -1036,7 +1230,7 @@ export async function findSmartRoutes(source: string, dest: string, date: string
                 const layoverHours = (depMs - arrivalMs) / (1000 * 60 * 60);
                 // Heritage/mountain routes (short leg 2) can have longer layovers at a hub
                 const isHeritageLeg2 = !!(t2._isHeritage);
-                const maxLayover = isHeritageLeg2 ? 8.0 : 4.5;
+                const maxLayover = hub === preferredHub ? 8.0 : isHeritageLeg2 ? 8.0 : 4.5;
 
                 // LAYOVER WINDOW: 1h to maxLayover for optimal transition
                 if (layoverHours >= 0.75 && layoverHours <= maxLayover) {
@@ -1046,7 +1240,7 @@ export async function findSmartRoutes(source: string, dest: string, date: string
                     t2,
                     layoverHours,
                     layoverDuration: formatDuration(depMs - arrivalMs),
-                    score: 100 - (layoverHours * 4),
+                    score: 100 - (layoverHours * 4) + (hub === preferredHub ? 45 : 0),
                     _isHeritage: isHeritageLeg2
                   });
                 }
@@ -1203,9 +1397,175 @@ export async function findSmartRoutes(source: string, dest: string, date: string
   }
 }
 
+function normalizeLegTime(time: string, baseDate: string, afterMs?: number) {
+  let value = parseTime(time, baseDate).getTime();
+  if (afterMs) {
+    while (value < afterMs) value += 24 * 60 * 60 * 1000;
+  }
+  return value;
+}
+
+function pickLikelyTrains(trains: any[], limit = 4) {
+  return [...trains]
+    .sort((a, b) => {
+      const aDaily = a.running_days === '1111111' ? 1 : 0;
+      const bDaily = b.running_days === '1111111' ? 1 : 0;
+      if (bDaily !== aDaily) return bDaily - aDaily;
+      const aSpecial = String(a.train_name || '').includes('SPL') ? 1 : 0;
+      const bSpecial = String(b.train_name || '').includes('SPL') ? 1 : 0;
+      return aSpecial - bSpecial;
+    })
+    .slice(0, limit);
+}
+
+function scoreMultiSplitRoute(legs: TrainResult[], layoverHours: number[]) {
+  const seatScore = legs.reduce((score, leg) => {
+    const availability = leg.availability.toUpperCase();
+    if (availability.includes('AVAILABLE') || availability.includes('AVL')) return score + 18;
+    if (availability.includes('RAC')) return score + 8;
+    if (availability.includes('WL')) return score - 8;
+    if (availability.includes('REGRET')) return score - 24;
+    return score;
+  }, 0);
+  const layoverPenalty = layoverHours.reduce((sum, hours) => sum + (hours < 1 ? 18 : hours > 5 ? (hours - 5) * 8 : 0), 0);
+  const durationHours = legs.reduce((sum, leg) => sum + parseDurationMins(leg.duration) / 60, 0) + layoverHours.reduce((sum, hours) => sum + hours, 0);
+  return Math.max(0, Math.min(100, Math.round(92 + seatScore - layoverPenalty - durationHours * 0.7)));
+}
+
+export async function findMultiSplitRoutes(source: string, dest: string, date: string, classType: string = 'Any', preferredHubInput: string = ''): Promise<MultiSplitRouteResult[]> {
+  source = normalizeStationCode(source);
+  dest = normalizeStationCode(dest);
+  const preferredHub = normalizeStationCode(preferredHubInput);
+  const hasPreferredHub = Boolean(preferredHub && preferredHub !== source && preferredHub !== dest);
+
+  try {
+    const formattedDate = formatDateStr(date);
+    const sourceGateways = endpointGatewayHubs(source).filter((hub) => hub !== source && hub !== dest);
+    const destGateways = endpointGatewayHubs(dest).filter((hub) => hub !== source && hub !== dest);
+    const ckpMiddleHubs = source === 'CKP' || dest === 'CKP' ? CKP_PRIORITY_HUBS : [];
+    const middleHubs = Array.from(new Set([...(hasPreferredHub ? [preferredHub] : []), ...ckpMiddleHubs, ...destGateways, ...NATIONAL_SPLIT_HUBS])).filter((hub) => hub !== source && hub !== dest);
+
+    const plans: { h1: string; h2: string }[] = [];
+    if (source === 'CKP') {
+      const ckpFirstLegs = ['TATA', 'ROU', 'RNC', 'DHN'].filter((hub) => hub !== dest);
+      const ckpLongHubs = Array.from(new Set([...(hasPreferredHub ? [preferredHub] : []), 'RNC', 'DDU', 'NDLS', 'NZM', 'PNBE', 'KOTA', 'AII'])).filter((hub) => hub !== source && hub !== dest);
+      for (const h1 of ckpFirstLegs) {
+        for (const h2 of ckpLongHubs) {
+          if (h1 !== h2) plans.push({ h1, h2 });
+        }
+      }
+    }
+    for (const h1 of sourceGateways.slice(0, 4)) {
+      for (const h2 of middleHubs.slice(0, source === 'CKP' ? 12 : 8)) {
+        if (h1 !== h2) plans.push({ h1, h2 });
+      }
+    }
+
+    const potentialRoutes: any[] = [];
+
+    const planLimit = source === 'CKP' || dest === 'CKP' ? 36 : 18;
+    for (const plan of Array.from(new Map(plans.map((plan) => [`${plan.h1}_${plan.h2}`, plan])).values()).slice(0, planLimit)) {
+      try {
+        const [leg1Options, leg2Options, leg3Options] = await Promise.all([
+          searchTrainsSmart(source, plan.h1, formattedDate),
+          searchTrainsSmart(plan.h1, plan.h2, formattedDate),
+          searchTrainsSmart(plan.h2, dest, formattedDate),
+        ]);
+
+        if (!leg1Options.length || !leg2Options.length || !leg3Options.length) continue;
+
+        for (const t1 of pickLikelyTrains(leg1Options, 3)) {
+          for (const t2 of pickLikelyTrains(leg2Options, 3)) {
+            for (const t3 of pickLikelyTrains(leg3Options, 3)) {
+              if (rawTrainDestination(t1) !== rawTrainSource(t2) || rawTrainDestination(t2) !== rawTrainSource(t3)) continue;
+
+              const arr1 = normalizeLegTime(rawTrainArrival(t1), formattedDate);
+              const dep2 = normalizeLegTime(rawTrainDeparture(t2), formattedDate, arr1);
+              const arr2 = normalizeLegTime(rawTrainArrival(t2), formattedDate, dep2);
+              const dep3 = normalizeLegTime(rawTrainDeparture(t3), formattedDate, arr2);
+              const arr3 = normalizeLegTime(rawTrainArrival(t3), formattedDate, dep3);
+              const layover1 = (dep2 - arr1) / (1000 * 60 * 60);
+              const layover2 = (dep3 - arr2) / (1000 * 60 * 60);
+
+              if (layover1 < 0.75 || layover2 < 0.75 || layover1 > 7 || layover2 > 7) continue;
+
+              potentialRoutes.push({
+                trains: [t1, t2, t3],
+                hubs: [plan.h1, plan.h2],
+                layoverHours: [layover1, layover2],
+                layoverDurations: [formatDuration(dep2 - arr1), formatDuration(dep3 - arr2)],
+                rawTotalMs: arr3 - normalizeLegTime(rawTrainDeparture(t1), formattedDate),
+              });
+            }
+          }
+        }
+      } catch {
+        console.warn(`[Multi Split] Skipped ${source}->${plan.h1}->${plan.h2}->${dest} due to missing data.`);
+      }
+    }
+
+    potentialRoutes.sort((a, b) => (a.layoverHours[0] + a.layoverHours[1]) - (b.layoverHours[0] + b.layoverHours[1]));
+    const results: MultiSplitRouteResult[] = [];
+    const usedKeys = new Set<string>();
+
+    for (const route of potentialRoutes.slice(0, 8)) {
+      if (results.length >= 4) break;
+      const key = route.hubs.join('_');
+      if (usedKeys.has(key)) continue;
+      usedKeys.add(key);
+
+      try {
+        const legs = await Promise.all(route.trains.map((train: any) => enrichWithLiveAvailability(train, formattedDate, classType)));
+        const inactive = legs.some((leg) => {
+          const availability = leg.availability.toLowerCase();
+          return availability.includes('not available for booking') || availability.includes('cancel') || availability.includes('not running') || availability.includes('no service');
+        });
+        if (inactive) continue;
+
+        const fares = legs.map((leg) => parseFloat(leg.fare.replace(/[₹,\s]/g, '')) || 0);
+        const totalFare = fares.reduce((sum, fare) => sum + fare, 0);
+        const confirmation = legs.reduce((chance, leg) => {
+          const current = leg.availability.toLowerCase().includes('available') ? 100 : (leg.confirmationChance ?? 85);
+          return (chance * current) / 100;
+        }, 100);
+        const totalMinutes = legs.reduce((sum, leg) => sum + parseDurationMins(leg.duration), 0) + Math.round((route.layoverHours[0] + route.layoverHours[1]) * 60);
+
+        results.push({
+          legs,
+          interchangeStations: route.hubs,
+          interchangeStationNames: route.hubs.map(hubLabel),
+          layovers: route.hubs.map((hub: string, index: number) => ({
+            station: hub,
+            duration: route.layoverDurations[index],
+            hours: route.layoverHours[index],
+          })),
+          totalFare,
+          totalDuration: formatDurationMinutes(totalMinutes),
+          score: scoreMultiSplitRoute(legs, route.layoverHours),
+          combinedConfirmationChance: Math.round(confirmation),
+        });
+      } catch (error) {
+        console.warn('[Multi Split] Failed to enrich route:', error);
+      }
+    }
+
+    return results.sort((a, b) => b.score - a.score);
+  } catch (error) {
+    console.error('Error finding multi split routes:', error);
+    return [];
+  }
+}
+
 
 export async function generateAIRecommendation(directTrains: any[], splitRoutes: any[], budget?: string) {
   try {
+    if (directTrains.length === 0 && splitRoutes.length === 0) {
+      return "No verified live route was found for this exact search. Try the station-gateway leg checks or verify the journey directly on IRCTC.";
+    }
+    if (directTrains.length > 0 && splitRoutes.length === 0) {
+      return "Direct train options are available for this leg. Open the train route card for the full station timeline and verify seats on IRCTC before booking.";
+    }
+
     const prompt = `You are an expert Indian Railways travel consultant.
     I am planning a trip. Here are my direct train options: ${JSON.stringify(directTrains.slice(0, 3))}
     Here are my split route options: ${JSON.stringify(splitRoutes.slice(0, 3))}

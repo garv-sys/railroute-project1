@@ -1,6 +1,5 @@
-import { RailRouteToolPage } from "@/components/railroute-product";
+import { redirect } from "next/navigation";
 
 export default function LivePage() {
-  return <RailRouteToolPage tool="live" />;
+  redirect("/trains");
 }
-
